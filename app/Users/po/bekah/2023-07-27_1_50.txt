@@ -1,0 +1,28 @@
+Repetition	Max. Angle Reached1	Avg. Velocity	Time	Distance	Default=1	Max Target Angle=3.5	Max. Angle Reached2
+X(Time)	Y(Sensor 1 Angle)	Y(Sensor 2 Angle)
+0	0	0
+1	0	0
+2	0	0
+3	0	0
+4	0	0
+5	0	0
+6	0	0
+7	0	0
+8	0	0
+9	0	0
+10	0	0
+11	18.07	29.71
+12	18.67	28.99
+13	18.67	28.99
+14	18.85	28.99
+15	18.85	28.99
+16	18.82	28.99
+17	18.82	29.68
+18	18.82	29.68
+19	1.11	9.17
+20	1.11	9.17
+21	1.11	9.17
+22	0.07	9.17
+23	0.07	9.17
+24	0.07	9.17
+25	0.07	9.17

@@ -1,0 +1,20 @@
+Bryan	Medina	admin	Male
+Day1	50
+Day2	10
+Day3	30
+Day4	45
+Day5	50
+Day6	60
+Day7	70
+Day8	20
+Day9	10
+Day10	5
+Day11	40
+Day12	56
+Day13	76
+Day14	83
+Day15	67
+Day16	68
+Day17	86
+Day18	45
+Day19	54

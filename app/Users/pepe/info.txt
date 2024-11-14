@@ -1,0 +1,12 @@
+pepe	aguilar	Male	pepe	pepea
+Day1	3	43	35
+Day2	7	156	55
+Day3	0	59	30
+Day4	0	194	141
+Day5	3	139	66
+Day6	1	35	29
+Day7	3	191	42
+Day8	1	46	41
+Day9	1	42	35
+Day10	1	99	95
+Day11	0	41	30
