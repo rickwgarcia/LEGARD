@@ -12,5 +12,3 @@ Due to barriers in accessing adequate post-surgical rehabilitative care, particu
 ### Prototype Development
 
 This prototype is a collaboration between physical therapy and engineering disciplines, co-sponsored by the University of New Mexico's College of Engineering (COE) and UNM Rainforest Innovations. The device was showcased at a UNM event, highlighting advancements in orthopedic rehabilitation practices.
-
-### More to come
