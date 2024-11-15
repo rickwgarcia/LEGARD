@@ -1,5 +1,3 @@
-# Let's modify the code to calculate and plot the average point as well
-
 import matplotlib.pyplot as plt
 import numpy as np
 
