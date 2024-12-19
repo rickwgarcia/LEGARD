@@ -14,9 +14,10 @@ sensors = [
 # Calibration
 calibration_ratios = []
 for index, hx in enumerate(sensors):
+    print(1)
     hx.zero()
     reading = hx.get_data_mean(readings=100)
-    calibrationWeight = 10
+    calibrationWeight = 0.1
     calibrationValue = float(calibrationWeight)
     ratio = reading / calibrationValue
     hx.set_scale_ratio(ratio)
@@ -33,6 +34,13 @@ for index, hx in enumerate(sensors):
 
 while True:
     for i in range(4):  # Corrected range to loop over indices
-        weight = sensors[i].get_weight_mean()  # Corrected to use the sensors list
-        weights[i] = weight # Update the scaled weight for the current index
-        print(f'{i}: {weight}')  # Print the calculated values
+        try:
+            weight = sensors[i].get_weight_mean()  # Corrected to use the sensors list
+            if weight is False:
+                print("Error reading weight: False")
+            else:
+                weights[i] = weight # Update the scaled weight for the current index
+                print(f'{i}: {weight}')  # Print the calculated values
+        except StatisticsError as e:
+            print("Error calculating variance:", e)
+            weight = None

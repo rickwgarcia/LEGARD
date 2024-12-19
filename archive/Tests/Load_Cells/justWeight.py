@@ -16,7 +16,7 @@ calibration_ratios = []
 for index, hx in enumerate(sensors):
     print(f'Calibrating sensor {index + 1}...')
     hx.zero()
-    reading = hx.get_data_mean(readings=100)
+    reading = hx.get_data_mean(readings=30)
     calibrationWeight = 0.1
     calibrationValue = float(calibrationWeight)
     ratio = reading / calibrationValue
