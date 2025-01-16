@@ -2,12 +2,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Read the coordinates from the file we previously created
-file_path = "/home/rickg/LEGARD/archive/Tests/HeatMap/coordinates.txt"
+file_path = "/home/rickg/LEGARD/Tests/HeatMap/coordinates.txt"
 with open(file_path, "r") as file:
     lines = file.readlines()
 
 # Parse the coordinates into a list of tuples
-coordinates = [tuple(map(int, line.strip().split("\t"))) for line in lines]
+coordinates = [tuple(map(int, line.strip().split(", "))) for line in lines]
+
 
 # Convert the coordinates into a 2D histogram for the heatmap
 x_coords, y_coords = zip(*coordinates)
