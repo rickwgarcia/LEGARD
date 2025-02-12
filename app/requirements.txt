@@ -1,7 +1,0 @@
-tk
-Pillow
-pandas
-matplotlib
-numpy
-adafruit-circuitpython-bno055
-
