@@ -3,7 +3,7 @@ from hx711 import HX711
 
 GPIO.setmode(GPIO.BCM)
 
-hx = HX711(dout_pin = 24, pd_sck_pin = 23)
+hx = HX711(dout_pin = 27, pd_sck_pin = 17)
 
 hx.zero()
 
