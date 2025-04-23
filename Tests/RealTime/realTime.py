@@ -22,7 +22,7 @@ sensors = [
     HX711(dout_pin=27, pd_sck_pin=17),
     HX711(dout_pin=20, pd_sck_pin=21),
     HX711(dout_pin=24, pd_sck_pin=23),
-    HX711(dout_pin=6, pd_sck_pin=5)
+    HX711(dout_pin=16, pd_sck_pin=12)
 ]
 
 calibration_ratios = [None] * len(sensors)
