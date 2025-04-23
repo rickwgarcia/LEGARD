@@ -23,6 +23,7 @@ from math import *
 import datetime
 import os
 import smbus
+import numpy as np
 
 class Frames(object):
                 
@@ -299,100 +300,142 @@ class Frames(object):
         Label(tab2, text = " ", bg='grey40', fg='white', font = 'Helvetica 20', height = 1, width=10).grid(row=8,column=1, pady=2)
         Label(tab2, text = " ", bg='grey40', fg='white', font = 'Helvetica 20', height = 1, width=10).grid(row=9,column=1, pady=2)
  
-         ################################################TAB 3 STUFF############################################################################ 
+        ################################################TAB 3 STUFF############################################################################ 
+               
         path = "/home/si/Desktop/LEGARD/app/Users/" + str(user[0][3])
         dir_list = os.listdir(path)
-        
-        # Change the label text
+
         def show():
             try:
-                label.config( text = "Viewing " + clicked.get() )
-                with open(path + "/" + str(clicked.get())) as f:
-                    line2 = [line.split("\t") for line in f]
-                found = False
-                X = []
-                Y = []
-                Y2 = []
-                V = []
-                MxAng1 = []
-                MxAng2 = []
-                T = []
-                
-                bx.cla()
-                for i, tst in enumerate(line2):
-                    if "X(Time)" in tst and found == False:
-                        found = True
-                    elif found == True:
-                        X.append(int(tst[0]))
-                        if len(tst) == 3:
-                            Y.append(float(tst[1]))
-                            Y2.append(float(tst[2].replace("\n","")))
-                        else:
-                            Y.append(float(tst[1].replace("\n","")))
-                    else:
-                        if i == 0:
-                            pass
-                        else:
-                            MxAng1.append(tst[1].strip('][').split(', '))
-                           # MxAng2.append(tst[8].strip('][').split(', '))
-                            V.append(tst[2].strip('][').split(', '))
-                            T.append(tst[3].strip('][').split(', '))
-                global lenX
-                lenX = len(X)
-                bx.plot(X, Y, color = 'b')
-                if Y2 != []:
-                    bx.plot(X, Y2, color = 'r')
+                label.config(text="Viewing " + clicked.get())
+                file_path = os.path.join(path, clicked.get())
+                with open(file_path) as f:
+                    raw_lines = [ln.rstrip("\n") for ln in f if ln.strip()]
 
-                for i,t in enumerate(T):
-                    bx.text(float(t[1])+0.5, float(max(Y)) + 7, 'Rep '+str(i+1))
-                    bx.text(float(t[1])+0.5, float(max(Y)) + 5, 'Max. Angle '+ str(MxAng1[i][0]))
-                  #  bx.text(float(t[1])+0.5, float(max(Y)) + 3, 'Max. Angle '+ str(MxAng2[i][0]))
-                    bx.text(float(t[1])+0.5, float(max(Y)) + 1, 'Max. Vel. '+max(V[i]))
-                    bx.axvline(x = float(t[1]), color = 'b', linestyle = "dashed")
-                    bx.axvline(x = float(t[-1]) + 2, color = 'b', linestyle = "dashed")
+                # ------------------------------------------------------------------
+                # 1) ----------  Split the file into its three logical blocks -------
+                # ------------------------------------------------------------------
+                #    block A: repetition summary rows (we keep them, nothing new)
+                #    block B: X(Time) / Y(Angle) columns  -> already parsed below
+                #    block C: X Cord / Y Cord coordinates -> NEW for heat-map
+                # ------------------------------------------------------------------
+                # find the first line that begins with "X(Time)" and the one that
+                # begins with "X Cord" (if any), so we know the boundaries.
+                x_time_idx = next(i for i, ln in enumerate(raw_lines) if ln.startswith("X(Time)"))
+                coord_idx  = next((i for i, ln in enumerate(raw_lines) if ln.startswith("X Cord")), None)
+
+                # ------------------------------------------------------------------
+                # 2) ----------  TIME‐SERIES  --------------------------------------
+                # ------------------------------------------------------------------
+                X, Y, Y2 = [], [], []
+                found_header = False
+                for ln in raw_lines[x_time_idx: (coord_idx or len(raw_lines))]:
+                    cols = ln.split("\t")
+                    if "X(Time)" in cols[0] and not found_header:
+                        found_header = True
+                        continue
+                    if found_header:
+                        X.append(int(cols[0]))
+                        if len(cols) == 3:
+                            Y.append(float(cols[1]))
+                            Y2.append(float(cols[2]))
+                        else:
+                            Y.append(float(cols[1]))
+
+                # ------------------------------------------------------------------
+                # 3) ----------  COORDINATES  --------------------------------------
+                # ------------------------------------------------------------------
+                coords = []
+                if coord_idx is not None:
+                    for ln in raw_lines[coord_idx + 1:]:
+                        if "," in ln:
+                            try:
+                                x_val, y_val = map(int, ln.split(","))
+                                coords.append((x_val, y_val))
+                            except ValueError:
+                                pass  # skip malformed rows
+
+                # ------------------------------------------------------------------
+                # 4) ----------  DRAW  ---------------------------------------------
+                # ------------------------------------------------------------------
+                bx.cla()                       # clear line-plot
+                hx.cla()                       # clear heat-map
+
+                # ---- line plot ----------------------------------------------------
+                bx.plot(X, Y, color="b", label="Y")
+                if Y2:
+                    bx.plot(X, Y2, color="r", label="Y2")
+                bx.set_xlabel("Time (s)")
+                bx.set_ylabel("Angle (deg)")
+                bx.legend(loc="upper right")
+
+                # ---- heat-map -----------------------------------------------------
+                if coords:                     # only draw if coordinates exist
+                    x_c, y_c = zip(*coords)
+                    heatmap, x_e, y_e = np.histogram2d(
+                        x_c, y_c,
+                        bins=(101, 101),
+                        range=[[-50, 50], [-50, 50]]
+                    )
+                    im = hx.imshow(
+                        heatmap.T,
+                        origin="lower",
+                        cmap="viridis",
+                        interpolation="nearest",
+                        extent=[-50, 50, -50, 50]
+                    )
+                    # average point
+                    hx.scatter(np.mean(x_c), np.mean(y_c), color="red", s=50, marker="o")
+                    hx.set_title("Cartesian Heat-Map")
+                    hx.set_xlabel("X-axis")
+                    hx.set_ylabel("Y-axis")
+                    # attach a color-bar for the heat-map
+                    fig.colorbar(im, ax=hx, fraction=0.046, pad=0.04)
+
+                # keep slider logic unchanged
+                lenX = len(X)                  # if you still need it elsewhere
                 update(1)
-            
-            except:
-                label.config( text = "No Correct Data" )
-        def update(val):
-            
+
+            except Exception as e:
+                label.config(text="No Correct Data")
+                print("Parser error:", e)
+
+
+        def update(val):                      # slider callback – unchanged
             pos = s_time.val
-            bx.axis([pos, pos+10, 0, 30])
+            bx.axis([pos, pos + 10, 0, 30])
             fig.canvas.draw_idle()
-        # Dropdown menu options
+
+
+        # --------------------------  GUI widgets  ---------------------------------
         options = dir_list
-          
-        # datatype of menu text
         clicked = StringVar()
-          
-        # initial menu text
-        clicked.set( "Select File to View" )
-          
-        # Create Dropdown menu
-        drop = OptionMenu(tab3 , clicked , *options )
-        drop.grid(row=0,columnspan=5)
-          
-        # Create button, it will change label text
-        button = Button(tab3 , text = "View" , command = show ).grid(row=1,columnspan=5)
-          
-        # Create Label
-        label = Label(tab3 , text = " " )
-        label.grid(row=2,columnspan=5)
+        clicked.set("Select File to View")
 
-        fig = plt.Figure(figsize=(8,3))
+        drop   = OptionMenu(tab3, clicked, *options)
+        button = Button(tab3, text="View", command=show)
+        label  = Label(tab3, text=" ")
+
+        drop.grid(row=0, columnspan=5)
+        button.grid(row=1, columnspan=5)
+        label.grid(row=2, columnspan=5)
+
+        fig  = plt.Figure(figsize=(10, 4))
         canvas = FigureCanvasTkAgg(fig, tab3)
-        canvas.get_tk_widget().grid(row=3,columnspan=5)
-        
-        global bx
-        bx=fig.add_subplot(111)
-        fig.subplots_adjust(bottom=0.25)
+        canvas.get_tk_widget().grid(row=3, columnspan=5)
 
-        bx.axis([0, 9, 0, 30])
+        # two side-by-side sub-plots
+        bx = fig.add_subplot(1, 2, 1)     # line plot
+        hx = fig.add_subplot(1, 2, 2)     # heat-map
+        fig.subplots_adjust(bottom=0.25, wspace=0.3)
+
+        bx.axis([0, 9, 0, 30])            # initial view for the line plot
         bx_time = fig.add_axes([0.12, 0.1, 0.78, 0.03])
-        s_time = Slider(bx_time, 'Time', 0, 1000, valinit=0)
+        s_time  = Slider(bx_time, 'Time', 0, 1000, valinit=0)
         s_time.on_changed(update)
-        
-         ################################################TAB 4 STUFF############################################################################
+
+
+        ################################################TAB 4 STUFF############################################################################
         #Label(tab4,text="App Activity Dashboard", font = 'Helvetica 20').grid(row=0,columnspan=3)
         figtab4 = plt.Figure(figsize=(5,2))
         canvas = FigureCanvasTkAgg(figtab4, tab4)
