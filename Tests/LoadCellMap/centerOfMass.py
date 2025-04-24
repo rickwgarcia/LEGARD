@@ -25,7 +25,7 @@ sensors = [
     HX711(dout_pin=27, pd_sck_pin=17),  # Sensor 1
     HX711(dout_pin=20, pd_sck_pin=21),  # Sensor 2
     HX711(dout_pin=24, pd_sck_pin=23),  # Sensor 3
-    HX711(dout_pin=6, pd_sck_pin=5)     # Sensor 4
+    HX711(dout_pin=16, pd_sck_pin=12)   # Sensor 4
 ]
 
 # Shared calibration ratios
@@ -37,6 +37,7 @@ def calibrate_sensor(sensor, index):
     try:
         print(f"Calibrating sensor {index + 1}...")
         sensor.zero()
+        input(f"Place a known weight on sensor {index + 1} and press Enter.")
         reading = sensor.get_data_mean(readings=100)
         calibrationWeight = input(f"Enter the known weight for sensor {index + 1} in grams: ")
         calibrationValue = float(calibrationWeight)
