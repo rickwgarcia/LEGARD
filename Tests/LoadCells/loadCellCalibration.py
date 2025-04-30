@@ -3,7 +3,7 @@ from hx711 import HX711
 
 GPIO.setmode(GPIO.BCM)
 
-hx = HX711(dout_pin = 27, pd_sck_pin = 17)
+hx = HX711(dout_pin = 20, pd_sck_pin = 21)
 
 hx.zero()
 
@@ -18,6 +18,7 @@ calibrationValue = float(calibrationWeight)
 #Find ratio
 ratio = reading/calibrationValue
 hx.set_scale_ratio(ratio)
+print(f'Calibration ratio set to {ratio}')
 
 while True:
 	weight = hx.get_weight_mean()
