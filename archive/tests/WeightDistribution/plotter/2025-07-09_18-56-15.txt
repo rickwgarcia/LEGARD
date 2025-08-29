@@ -1,0 +1,4 @@
+# Data log started at: 2025-07-09 18:56:15
+# Serial Port: /dev/ttyACM0, Baud Rate: 9600
+# Format: Timestamp | [WA, WB, WC, WD] -> X: CoM_X, Y: CoM_Y
+# -----
