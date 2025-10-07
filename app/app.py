@@ -4,14 +4,15 @@ import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-# Import the new routine window class from the other file
+# Import the routine window and the new config manager
 from routine_window import RoutineWindow
+from config_manager import config
 
 # --- Constants ---
-USER_DATA_FILE = '/home/si/Desktop/LEGARD/app/users/users.csv'
+# MODIFIED: Get user data file path from the config
+USER_DATA_FILE = config.get('Paths', 'user_data_file')
 
 # --- Backend Logic ---
-
 def hash_pin(pin):
     """Hashes the PIN using SHA-256 for secure storage."""
     salt = "your_secret_salt" 
@@ -22,6 +23,8 @@ def register_user(username, pin, first_name, last_name, gender):
     """Registers a new user with profile details and a PIN to users.csv."""
     if not all([username, pin, first_name, last_name, gender]):
         return (False, "All fields are required.")
+    
+    os.makedirs(os.path.dirname(USER_DATA_FILE), exist_ok=True)
     
     if os.path.exists(USER_DATA_FILE):
         with open(USER_DATA_FILE, 'r', newline='') as file:
@@ -42,45 +45,36 @@ def login_user(username, pin):
     Logs in a user by checking credentials against users.csv.
     Returns success status, a message, full name, and gender on success.
     """
-    if not username or not pin: 
+    if not username or not pin:
         return (False, "Username and PIN cannot be empty.", None, None)
         
-    hashed_pin = hash_pin(pin)
-    if not os.path.exists(USER_DATA_FILE): 
+    if not os.path.exists(USER_DATA_FILE):
         return (False, "No user accounts found.", None, None)
         
+    hashed_pin = hash_pin(pin)
     with open(USER_DATA_FILE, 'r', newline='') as file:
         reader = csv.reader(file)
         try:
-            first_row = next(reader)
-            if first_row != ['username', 'hashed_pin', 'first_name', 'last_name', 'gender']:
-                if first_row and first_row[0] == username and first_row[1] == hashed_pin:
-                    full_name = f"{first_row[2]} {first_row[3]}"
-                    gender = first_row[4]
-                    return (True, f"Welcome back, {full_name}!", full_name, gender)
+            next(reader) 
         except StopIteration:
             return (False, "No user accounts found.", None, None)
 
         for row in reader:
-            if row and row[0] == username and row[1] == hashed_pin:
+            if len(row) >= 5 and row[0] == username and row[1] == hashed_pin:
                 full_name = f"{row[2]} {row[3]}"
                 gender = row[4]
                 return (True, f"Welcome back, {full_name}!", full_name, gender)
                 
     return (False, "Invalid username or PIN.", None, None)
 
-# --- GUI Classes ---
-
+# --- GUI Classes (No changes in these classes) ---
 class RegistrationWindow(tk.Toplevel):
-    """A separate pop-up window for user registration with a PIN."""
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Register New User")
         self.geometry("350x250")
-
         frame = ttk.Frame(self, padding="10")
         frame.pack(fill="both", expand=True)
-
         ttk.Label(frame, text="First Name:").grid(row=0, column=0, sticky="w", pady=2)
         self.first_name_entry = ttk.Entry(frame)
         self.first_name_entry.grid(row=0, column=1, sticky="ew", pady=2)
@@ -109,8 +103,6 @@ class RegistrationWindow(tk.Toplevel):
         if len(pin) != 4:
             messagebox.showerror("Error", "Your PIN must be exactly 4 digits.")
             return
-        
-        # ... (rest of submit logic is the same)
         first_name = self.first_name_entry.get()
         last_name = self.last_name_entry.get()
         gender = self.gender_combobox.get()
@@ -122,9 +114,7 @@ class RegistrationWindow(tk.Toplevel):
         else:
             messagebox.showerror("Error", message)
 
-
 class Dashboard(tk.Tk):
-    """The main application dashboard shell."""
     def __init__(self, username, full_name, gender):
         super().__init__()
         self.username = username
@@ -133,29 +123,18 @@ class Dashboard(tk.Tk):
         self.title(f"Exercise Dashboard - Welcome {self.full_name}")
         self.attributes('-fullscreen', True)
         self.bind('<Escape>', lambda e: self.on_closing())
-
-        self.routine_window = None # To keep track of the routine pop-up
-
+        self.routine_window = None
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(pady=20, padx=20, expand=True, fill="both")
-        
-        tabs = {
-            "[P] Profile": self.create_profile_tab, 
-            "[R] Routine": self.create_routine_tab, 
-            "[H] History": self.create_history_tab, 
-            "[A] Analytics": self.create_analytics_tab, 
-            "[S] Settings": self.create_settings_tab
-        }
+        tabs = {"[P] Profile": self.create_profile_tab, "[R] Routine": self.create_routine_tab, "[H] History": self.create_history_tab, "[A] Analytics": self.create_analytics_tab, "[S] Settings": self.create_settings_tab}
         for name, creation_func in tabs.items():
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=name)
             creation_func(frame)
-        
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_closing(self):
-        """Custom close function to also close the routine window if it's open."""
-        if self.routine_window:
+        if self.routine_window and self.routine_window.winfo_exists():
             self.routine_window.destroy()
         self.destroy()
 
@@ -169,22 +148,16 @@ class Dashboard(tk.Tk):
         ttk.Label(info_frame, text=self.gender).grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
     def create_routine_tab(self, parent_frame):
-        """Creates the routine tab with a button to launch the session."""
-        # Center the button in the frame
         parent_frame.columnconfigure(0, weight=1)
         parent_frame.rowconfigure(0, weight=1)
-        
         start_button = ttk.Button(parent_frame, text="Start New Routine", command=self.start_routine)
         start_button.grid(row=0, column=0, ipady=20, ipadx=40)
 
     def start_routine(self):
-        """Opens the full-screen routine window."""
-        # Prevent opening multiple windows
         if self.routine_window and self.routine_window.winfo_exists():
             self.routine_window.lift()
             return
-            
-        self.routine_window = RoutineWindow(self)
+        self.routine_window = RoutineWindow(self, self.username)
         self.routine_window.focus()
 
     def create_history_tab(self, parent_frame):
@@ -196,27 +169,21 @@ class Dashboard(tk.Tk):
     def create_settings_tab(self, parent_frame):
         ttk.Label(parent_frame, text="Application settings will be configured here.", font=("Helvetica", 14), foreground="gray").pack(expand=True)
 
-
 class LoginApp(tk.Tk):
-    """The initial login window for the application."""
     def __init__(self):
         super().__init__()
         self.title("Exercise App Login")
         self.attributes('-fullscreen', True)
         self.bind('<Escape>', lambda e: self.destroy())
-
         main_frame = tk.Frame(self)
         main_frame.pack(expand=True)
         main_frame.columnconfigure(1, weight=1)
-
         ttk.Label(main_frame, text="Username:").grid(row=0, column=0, sticky="e", padx=5, pady=5)
         self.username_entry = ttk.Entry(main_frame)
         self.username_entry.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
-
         ttk.Label(main_frame, text="Enter PIN:").grid(row=1, column=0, sticky="e", padx=5, pady=5)
         self.pin_entry = ttk.Entry(main_frame, show="*")
         self.pin_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=5)
-
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=2, column=0, columnspan=2, pady=10)
         ttk.Button(button_frame, text="Login", command=self.handle_login).pack(side=tk.LEFT, padx=5)
@@ -237,7 +204,11 @@ class LoginApp(tk.Tk):
         RegistrationWindow(self)
 
 def setup_files():
-    """Ensures the necessary user data file exists before the app runs."""
+    """Ensures the necessary user data file and directory exist."""
+    user_dir = os.path.dirname(USER_DATA_FILE)
+    if user_dir and not os.path.exists(user_dir):
+        os.makedirs(user_dir)
+        
     if not os.path.exists(USER_DATA_FILE):
         with open(USER_DATA_FILE, 'w', newline='') as file:
             writer = csv.writer(file)

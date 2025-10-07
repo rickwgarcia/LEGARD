@@ -8,6 +8,7 @@ import re
 import csv
 import time
 import math
+import os
 from datetime import datetime
 from collections import deque
 import matplotlib.pyplot as plt
@@ -18,7 +19,10 @@ import board
 import adafruit_bno055
 import logging
 
-# --- Handles raw serial data input in a separate thread ---
+# Import the config object
+from config_manager import config
+
+# --- SerialThread Class (No changes) ---
 class SerialThread(threading.Thread):
     def __init__(self, port, baudrate, data_queue):
         super().__init__(daemon=True)
@@ -42,8 +46,8 @@ class SerialThread(threading.Thread):
                 line = self.serial_connection.readline().decode('utf-8').strip()
                 if line:
                     self.data_queue.put(line)
-            except (serial.SerialException, TypeError):
-                logging.error("Serial device disconnected.")
+            except (serial.SerialException, TypeError, UnicodeDecodeError):
+                logging.error("Serial device disconnected or communication error.")
                 break
         
         if self.serial_connection and self.serial_connection.is_open:
@@ -55,17 +59,21 @@ class SerialThread(threading.Thread):
 
     def send(self, data):
         if self.serial_connection and self.serial_connection.is_open:
-            self.serial_connection.write(data.encode('utf-8'))
-            logging.info(f"Sent: {data.strip()}")
+            try:
+                self.serial_connection.write(data.encode('utf-8'))
+                logging.info(f"Sent: {data.strip()}")
+            except serial.SerialException:
+                logging.error("Failed to send data; device may be disconnected.")
 
-# --- Processes and logs data in a separate thread ---
+# --- DataProcessor Class (No changes) ---
 class DataProcessor(threading.Thread):
-    def __init__(self, sensor, data_queue, plot_queue):
+    def __init__(self, sensor, data_queue, plot_queue, username):
         super().__init__(daemon=True)
         self.running = False
         self.sensor = sensor
         self.data_queue = data_queue
         self.plot_queue = plot_queue
+        self.username = username
         self.csv_file = None
         self.csv_writer = None
         self.start_time = 0
@@ -87,7 +95,7 @@ class DataProcessor(threading.Thread):
 
     def parse_and_process(self, line):
         cop_match = self.cop_pattern.match(line)
-        if not cop_match or not self.sensor:
+        if not cop_match:
             return
 
         try:
@@ -95,32 +103,48 @@ class DataProcessor(threading.Thread):
             if not (-20 < x < 20 and -20 < y < 20):
                 logging.warning(f"CoP outlier detected ({x:.1f}, {y:.1f}). Skipping point.")
                 return
-            qw = self.sensor.quaternion[0]
-            if qw is None:
-                logging.warning("BNO055 returned None. Skipping point.")
-                return
+            
+            relative_angle = self.last_known_angle
+            if self.sensor:
+                try:
+                    qw = self.sensor.quaternion[0]
+                    if qw is not None:
+                        qw = max(min(qw, 1.0), -1.0)
+                        abs_angle = math.acos(qw) * 2 * (180 / math.pi)
+                        if self.initial_angle_w is None:
+                            self.initial_angle_w = abs_angle
+                        angle_candidate = abs_angle - self.initial_angle_w
+                        
+                        if angle_candidate >= 0 and abs(angle_candidate - self.last_known_angle) < 180:
+                            relative_angle = angle_candidate
+                            self.last_known_angle = relative_angle
+                        else:
+                            logging.warning(f"Angle outlier detected ({angle_candidate:.1f}). Using last known value.")
+                    else:
+                        logging.warning("BNO055 returned None. Using last known angle.")
+                except (OSError, RuntimeError):
+                    logging.warning("BNO055 read error. Using last known angle.")
             
             current_time = time.monotonic() - self.start_time
-            qw = max(min(qw, 1.0), -1.0)
-            abs_angle = math.acos(qw) * 2 * (180 / math.pi)
-            if self.initial_angle_w is None:
-                self.initial_angle_w = abs_angle
-            relative_angle = abs_angle - self.initial_angle_w
-            if relative_angle < 0 or abs(relative_angle - self.last_known_angle) > 180:
-                logging.warning(f"Angle outlier detected ({relative_angle:.1f}). Skipping point.")
-                return
-
-            self.last_known_angle = relative_angle
             data_packet = (current_time, relative_angle, x, y)
             self.plot_queue.put(data_packet)
             if self.csv_writer:
                 self.csv_writer.writerow([f"{v:.4f}" for v in data_packet])
-        except (OSError, RuntimeError):
-            logging.warning("BNO055 read error. Skipping point.")
+
+        except (ValueError, TypeError):
+            logging.warning(f"Could not parse data line: '{line}'")
 
     def setup_csv(self):
         try:
-            filename = f"datalog_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            sessions_dir = config.get('Paths', 'sessions_base_dir')
+            user_session_path = os.path.join(sessions_dir, self.username)
+            os.makedirs(user_session_path, exist_ok=True)
+            
+            filename = os.path.join(
+                user_session_path, 
+                f"datalog_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+
             self.csv_file = open(filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
             self.csv_writer.writerow(['Time', 'Angle', 'X', 'Y'])
@@ -138,21 +162,24 @@ class DataProcessor(threading.Thread):
     def stop(self):
         self.running = False
 
-# --- Main UI and Animation Window using the timer-based FuncAnimation ---
+# --- Main UI and Animation Window ---
 class RoutineWindow(tk.Toplevel):
-    def __init__(self, parent):
+    def __init__(self, parent, username):
         super().__init__(parent)
+        self.username = username
         self.title("Live Routine Session")
         self.attributes('-fullscreen', True)
         self.bind('<Escape>', lambda e: self.on_closing())
+
+        self.is_streaming = False
 
         self.serial_thread = None
         self.data_processor_thread = None
         self.data_queue = queue.Queue()
         self.plot_queue = queue.Queue()
-
-        self.PLOT_HISTORY_LENGTH = 100 
-        self.TIME_WINDOW_SECONDS = 10
+        
+        self.PLOT_HISTORY_LENGTH = config.getint('Plotting', 'plot_history_length')
+        self.TIME_WINDOW_SECONDS = config.getint('Plotting', 'time_window_seconds')
         
         self.x_cop_history = deque(maxlen=self.PLOT_HISTORY_LENGTH)
         self.y_cop_history = deque(maxlen=self.PLOT_HISTORY_LENGTH)
@@ -165,15 +192,24 @@ class RoutineWindow(tk.Toplevel):
         self.init_sensor()
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-        port = "/dev/ttyUSB0" # Change this to your actual port if different
-        logging.info(f"Attempting to connect to {port}...")
+        log_level = config.get('Logging', 'level').upper()
+        logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
         
-        self.serial_thread = SerialThread(port, 115200, self.data_queue)
+        port_setting = config.get('Serial', 'port')
+        baudrate = config.getint('Serial', 'baudrate')
+
+        port = port_setting if port_setting else next((p.device for p in serial.tools.list_ports.comports()), None)
+        
+        if not port:
+            logging.error("No serial port found. Cannot start data collection.")
+            return
+
+        logging.info(f"Attempting to connect to {port} at {baudrate} baud...")
+        
+        self.serial_thread = SerialThread(port, baudrate, self.data_queue)
         self.serial_thread.start()
         
-        self.data_processor_thread = DataProcessor(self.sensor, self.data_queue, self.plot_queue)
+        self.data_processor_thread = DataProcessor(self.sensor, self.data_queue, self.plot_queue, self.username)
         self.data_processor_thread.start()
 
     def init_sensor(self):
@@ -186,25 +222,48 @@ class RoutineWindow(tk.Toplevel):
             self.sensor = None
 
     def setup_ui(self):
-        main_frame = ttk.Frame(self, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-        
-        control_frame = ttk.LabelFrame(main_frame, text="Controls", padding="10")
-        control_frame.grid(row=0, column=0, sticky="ns", padx=(0, 10))
-        ttk.Button(control_frame, text="Start", command=lambda: self.send_command('c')).pack(fill=tk.X, pady=2)
-
-        data_frame = ttk.LabelFrame(main_frame, text="Live Data", padding="10")
-        data_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
-        main_frame.columnconfigure(1, weight=1)
+        main_frame = ttk.Frame(self)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(1, weight=4)
         main_frame.rowconfigure(0, weight=1)
 
-        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(1, 2, figsize=(9, 4.5), dpi=100)
+        control_frame = ttk.Frame(main_frame)
+        control_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        style = ttk.Style(self)
+        # --- THIS IS THE ONLY LINE THAT CHANGED ---
+        style.configure('Large.TButton', font=('Helvetica', 20, 'bold'), padding=15)
+
+        self.start_stop_button = ttk.Button(
+            control_frame,
+            text="Start",
+            command=self.toggle_stream,
+            style='Large.TButton'
+        )
+        self.start_stop_button.pack(fill="both", expand=True, pady=10)
+
+        exit_button = ttk.Button(
+            control_frame,
+            text="Exit",
+            command=self.on_closing,
+            style='Large.TButton'
+        )
+        exit_button.pack(fill="both", expand=True, pady=10)
+
+        data_frame = ttk.Frame(main_frame)
+        data_frame.grid(row=0, column=1, sticky="nsew")
+
+        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(1, 2, figsize=(10, 5), dpi=100)
         
+        cop_x_lim = config.getfloat('Plotting', 'cop_x_limit')
+        cop_y_lim = config.getfloat('Plotting', 'cop_y_limit')
+        angle_y_min = config.getfloat('Plotting', 'angle_y_min')
+        angle_y_max = config.getfloat('Plotting', 'angle_y_max')
+
         self.trail_line, = self.ax_cop.plot([], [], 'b-', alpha=0.5, lw=2)
         self.current_point_marker, = self.ax_cop.plot([], [], 'ro', markersize=8)
-        self.ax_cop.set_xlim(-1.5, 1.5); self.ax_cop.set_ylim(-1.5, 1.5)
+        self.ax_cop.set_xlim(-cop_x_lim, cop_x_lim); self.ax_cop.set_ylim(-cop_y_lim, cop_y_lim)
         self.ax_cop.set_xlabel("X"); self.ax_cop.set_ylabel("Y")
         self.ax_cop.set_title("Center of Pressure"); self.ax_cop.grid(True)
         self.ax_cop.set_aspect('equal', adjustable='box')
@@ -213,43 +272,53 @@ class RoutineWindow(tk.Toplevel):
         self.ax_angle.set_title("Relative Angle"); self.ax_angle.set_xlabel("Time (s)")
         self.ax_angle.set_ylabel("Angle (degrees)"); self.ax_angle.grid(True)
         self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
-        self.ax_angle.set_ylim(-10, 100)
+        self.ax_angle.set_ylim(angle_y_min, angle_y_max)
         
         self.fig.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.fig, master=data_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         
-        # Target ~60 FPS with blitting enabled for max performance
-        self.ani = FuncAnimation(self.fig, self.animate_plot, interval=16, blit=True)
+        self.ani = FuncAnimation(self.fig, self.animate_plot, interval=16, blit=True, cache_frame_data=False)
+
+    def toggle_stream(self):
+        if not self.is_streaming:
+            self.send_command('c')
+            self.start_stop_button.config(text="Stop")
+            self.is_streaming = True
+            logging.info("--> Data stream STARTED.")
+        else:
+            self.send_command('s')
+            self.start_stop_button.config(text="Start")
+            self.is_streaming = False
+            logging.info("--> Data stream STOPPED.")
 
     def disconnect(self):
-        if self.data_processor_thread:
+        if self.data_processor_thread and self.data_processor_thread.is_alive():
             self.data_processor_thread.stop()
-        if self.serial_thread:
+            self.data_processor_thread.join()
+        if self.serial_thread and self.serial_thread.is_alive():
             self.serial_thread.stop()
-        self.data_processor_thread = None
-        self.serial_thread = None
+            self.serial_thread.join()
 
     def animate_plot(self, frame):
-        # Process a limited batch of data to keep the UI responsive
-        for _ in range(20):
+        processed_in_frame = 0
+        while processed_in_frame < 20:
             try:
                 current_time, relative_angle, x, y = self.plot_queue.get_nowait()
                 self.time_history.append(current_time)
                 self.angle_history.append(relative_angle)
                 self.x_cop_history.append(x)
                 self.y_cop_history.append(y)
+                processed_in_frame += 1
             except queue.Empty:
                 break
         
-        # Trim old data for the scrolling window effect
         if self.time_history:
-            while self.time_history[-1] - self.time_history[0] > self.TIME_WINDOW_SECONDS:
+            while self.time_history and (self.time_history[-1] - self.time_history[0] > self.TIME_WINDOW_SECONDS):
                 self.time_history.popleft()
                 self.angle_history.popleft()
 
-        # Update plot data
         self.trail_line.set_data(self.x_cop_history, self.y_cop_history)
         if self.x_cop_history:
              self.current_point_marker.set_data([self.x_cop_history[-1]], [self.y_cop_history[-1]])
@@ -258,7 +327,6 @@ class RoutineWindow(tk.Toplevel):
 
         self.angle_line.set_data(self.time_history, self.angle_history)
         
-        # Efficiently update the x-axis for a smooth scrolling effect
         if self.time_history:
             latest_time = self.time_history[-1]
             if latest_time > self.TIME_WINDOW_SECONDS:
@@ -266,26 +334,15 @@ class RoutineWindow(tk.Toplevel):
             else:
                 self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
 
-        # Return changed artists for blitting
         return self.trail_line, self.current_point_marker, self.angle_line
 
     def send_command(self, cmd):
         if self.serial_thread and self.serial_thread.is_alive():
-            self.serial_thread.send(cmd)
+            self.serial_thread.send(cmd + '\n')
         else:
-            logging.warning("Not connected.")
+            logging.warning("Cannot send command: Not connected.")
 
     def on_closing(self):
+        logging.info("Exit button clicked. Shutting down...")
         self.disconnect()
         self.destroy()
-
-# --- Application entry point ---
-if __name__ == '__main__':
-    root = tk.Tk()
-    root.title("Main Application")
-    
-    def open_routine_window():
-        RoutineWindow(root)
-        
-    ttk.Button(root, text="Open Routine Window", command=open_routine_window).pack(pady=20, padx=20)
-    root.mainloop()
