@@ -3,13 +3,24 @@ import hashlib
 import os
 import tkinter as tk
 from tkinter import messagebox, ttk
+import logging
 
-# Import the routine window and the new config manager
+# Import the new windows and config manager
 from routine_window import RoutineWindow
+from calibration_window import CalibrationWindow
 from config_manager import config
 
+# Sensor-related imports
+try:
+    import board
+    import adafruit_bno055
+except ImportError:
+    print("Warning: Could not import 'board' or 'adafruit_bno055'. BNO055 sensor will not be available.")
+    board = None
+    adafruit_bno055 = None
+
+
 # --- Constants ---
-# MODIFIED: Get user data file path from the config
 USER_DATA_FILE = config.get('Paths', 'user_data_file')
 
 # --- Backend Logic ---
@@ -26,12 +37,16 @@ def register_user(username, pin, first_name, last_name, gender):
     
     os.makedirs(os.path.dirname(USER_DATA_FILE), exist_ok=True)
     
-    if os.path.exists(USER_DATA_FILE):
-        with open(USER_DATA_FILE, 'r', newline='') as file:
-            reader = csv.reader(file)
-            for row in reader:
-                if row and row[0] == username:
-                    return (False, "Username already exists.")
+    # Check for header before checking for users
+    if not os.path.exists(USER_DATA_FILE):
+        setup_files() # Ensure file and header exist
+
+    with open(USER_DATA_FILE, 'r', newline='') as file:
+        reader = csv.reader(file)
+        next(reader) # Skip header
+        for row in reader:
+            if row and row[0] == username:
+                return (False, "Username already exists.")
                     
     hashed_pin = hash_pin(pin)
     with open(USER_DATA_FILE, 'a', newline='') as file:
@@ -49,13 +64,13 @@ def login_user(username, pin):
         return (False, "Username and PIN cannot be empty.", None, None)
         
     if not os.path.exists(USER_DATA_FILE):
-        return (False, "No user accounts found.", None, None)
+        return (False, "No user accounts found. Please register an account.", None, None)
         
     hashed_pin = hash_pin(pin)
     with open(USER_DATA_FILE, 'r', newline='') as file:
         reader = csv.reader(file)
         try:
-            next(reader) 
+            next(reader) # Skip header
         except StopIteration:
             return (False, "No user accounts found.", None, None)
 
@@ -67,7 +82,7 @@ def login_user(username, pin):
                 
     return (False, "Invalid username or PIN.", None, None)
 
-# --- GUI Classes (No changes in these classes) ---
+# --- GUI Classes ---
 class RegistrationWindow(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
@@ -123,7 +138,11 @@ class Dashboard(tk.Tk):
         self.title(f"Exercise Dashboard - Welcome {self.full_name}")
         self.attributes('-fullscreen', True)
         self.bind('<Escape>', lambda e: self.on_closing())
+        
         self.routine_window = None
+        self.sensor = None
+        self.init_sensor() # Initialize sensor when dashboard opens
+
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(pady=20, padx=20, expand=True, fill="both")
         tabs = {"[P] Profile": self.create_profile_tab, "[R] Routine": self.create_routine_tab, "[H] History": self.create_history_tab, "[A] Analytics": self.create_analytics_tab, "[S] Settings": self.create_settings_tab}
@@ -132,6 +151,20 @@ class Dashboard(tk.Tk):
             self.notebook.add(frame, text=name)
             creation_func(frame)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    def init_sensor(self):
+        """Initializes the BNO055 sensor."""
+        if board and adafruit_bno055:
+            try:
+                i2c = board.I2C()
+                self.sensor = adafruit_bno055.BNO055_I2C(i2c)
+                logging.info("BNO055 sensor found and initialized in Dashboard.")
+            except (ValueError, OSError) as e:
+                logging.error(f"BNO055 sensor not found. Angle data will be unavailable. Error: {e}")
+                self.sensor = None
+        else:
+            self.sensor = None
+            logging.warning("BNO055 libraries not imported. Sensor functionality disabled.")
 
     def on_closing(self):
         if self.routine_window and self.routine_window.winfo_exists():
@@ -154,10 +187,25 @@ class Dashboard(tk.Tk):
         start_button.grid(row=0, column=0, ipady=20, ipadx=40)
 
     def start_routine(self):
+        """Opens the calibration window first."""
         if self.routine_window and self.routine_window.winfo_exists():
             self.routine_window.lift()
             return
-        self.routine_window = RoutineWindow(self, self.username)
+            
+        # Instead of opening RoutineWindow directly, open the calibration window
+        CalibrationWindow(self, self.sensor, on_complete_callback=self.launch_routine_window)
+
+    def launch_routine_window(self, initial_angle):
+        """
+        This is the callback function called by CalibrationWindow.
+        It receives the calibration result and opens the main routine window.
+        """
+        if self.routine_window and self.routine_window.winfo_exists():
+            self.routine_window.lift()
+            return
+        
+        # Now, create the routine window and pass the sensor and initial angle to it
+        self.routine_window = RoutineWindow(self, self.username, self.sensor, initial_angle)
         self.routine_window.focus()
 
     def create_history_tab(self, parent_frame):

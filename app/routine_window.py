@@ -15,8 +15,6 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.animation import FuncAnimation
-import board
-import adafruit_bno055
 import logging
 
 # Import the config object
@@ -65,9 +63,9 @@ class SerialThread(threading.Thread):
             except serial.SerialException:
                 logging.error("Failed to send data; device may be disconnected.")
 
-# --- DataProcessor Class (No changes) ---
+# --- DataProcessor Class (Updated) ---
 class DataProcessor(threading.Thread):
-    def __init__(self, sensor, data_queue, plot_queue, username):
+    def __init__(self, sensor, data_queue, plot_queue, username, initial_angle=None):
         super().__init__(daemon=True)
         self.running = False
         self.sensor = sensor
@@ -77,7 +75,7 @@ class DataProcessor(threading.Thread):
         self.csv_file = None
         self.csv_writer = None
         self.start_time = 0
-        self.initial_angle_w = None
+        self.initial_angle_w = initial_angle
         self.cop_pattern = re.compile(r"\(([-]?\d+\.\d+), ([-]?\d+\.\d+)\)")
         self.last_known_angle = 0.0
 
@@ -111,8 +109,11 @@ class DataProcessor(threading.Thread):
                     if qw is not None:
                         qw = max(min(qw, 1.0), -1.0)
                         abs_angle = math.acos(qw) * 2 * (180 / math.pi)
+                        
                         if self.initial_angle_w is None:
                             self.initial_angle_w = abs_angle
+                            logging.warning("Initial angle not set by calibration. Setting on first read.")
+
                         angle_candidate = abs_angle - self.initial_angle_w
                         
                         if angle_candidate >= 0 and abs(angle_candidate - self.last_known_angle) < 180:
@@ -162,9 +163,9 @@ class DataProcessor(threading.Thread):
     def stop(self):
         self.running = False
 
-# --- Main UI and Animation Window ---
+# --- Main UI and Animation Window (Updated) ---
 class RoutineWindow(tk.Toplevel):
-    def __init__(self, parent, username):
+    def __init__(self, parent, username, sensor, initial_angle=None):
         super().__init__(parent)
         self.username = username
         self.title("Live Routine Session")
@@ -172,6 +173,7 @@ class RoutineWindow(tk.Toplevel):
         self.bind('<Escape>', lambda e: self.on_closing())
 
         self.is_streaming = False
+        self.sensor = sensor
 
         self.serial_thread = None
         self.data_processor_thread = None
@@ -186,10 +188,7 @@ class RoutineWindow(tk.Toplevel):
         self.time_history = deque()
         self.angle_history = deque()
         
-        self.sensor = None
-        
         self.setup_ui()
-        self.init_sensor()
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         log_level = config.get('Logging', 'level').upper()
@@ -209,17 +208,8 @@ class RoutineWindow(tk.Toplevel):
         self.serial_thread = SerialThread(port, baudrate, self.data_queue)
         self.serial_thread.start()
         
-        self.data_processor_thread = DataProcessor(self.sensor, self.data_queue, self.plot_queue, self.username)
+        self.data_processor_thread = DataProcessor(self.sensor, self.data_queue, self.plot_queue, self.username, initial_angle)
         self.data_processor_thread.start()
-
-    def init_sensor(self):
-        try:
-            i2c = board.I2C()
-            self.sensor = adafruit_bno055.BNO055_I2C(i2c)
-            logging.info("BNO055 sensor found!")
-        except (ValueError, OSError) as e:
-            logging.error(f"BNO055 sensor not found. Angle data will be unavailable. Error: {e}")
-            self.sensor = None
 
     def setup_ui(self):
         main_frame = ttk.Frame(self)
@@ -232,7 +222,6 @@ class RoutineWindow(tk.Toplevel):
         control_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
         style = ttk.Style(self)
-        # --- THIS IS THE ONLY LINE THAT CHANGED ---
         style.configure('Large.TButton', font=('Helvetica', 20, 'bold'), padding=15)
 
         self.start_stop_button = ttk.Button(
