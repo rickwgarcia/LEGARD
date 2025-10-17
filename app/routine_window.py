@@ -64,6 +64,7 @@ class SerialThread(threading.Thread):
                 logging.error("Failed to send data; device may be disconnected.")
 
 # --- DataProcessor Class (Updated) ---
+# --- DataProcessor Class (Updated for Velocity-Based Rep Counting) ---
 class DataProcessor(threading.Thread):
     def __init__(self, sensor, data_queue, plot_queue, username, initial_angle=None):
         super().__init__(daemon=True)
@@ -79,18 +80,29 @@ class DataProcessor(threading.Thread):
         self.cop_pattern = re.compile(r"\(([-]?\d+\.\d+), ([-]?\d+\.\d+)\)")
         self.last_known_angle = 0.0
         
-        # Rep Counter Attributes from config
+        # --- Rep Counter Attributes ---
         self.rep_count = 0
-        self.below_threshold = False
-        self.REP_THRESHOLD = config.getfloat('RepCounter', 'rep_threshold') # <<< MODIFIED
+        self.rep_state = 0  # State machine: 0=idle, 1=downward, 2=upward # <<< MODIFIED
         
-        # --- Smoothing Filter from config ---
-        self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window') # <<< MODIFIED
+        # --- Smoothing & Velocity Attributes ---
+        self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window')
         self.angle_buffer = deque(maxlen=self.SMOOTHING_WINDOW)
+        
+        self.VELOCITY_SMOOTHING_WINDOW = config.getint('RepCounter', 'velocity_smoothing_window', fallback=5)
+        self.velocity_buffer = deque(maxlen=self.VELOCITY_SMOOTHING_WINDOW)
+        
+        # <<< NEW: Get velocity thresholds from config for the state machine
+        self.VELOCITY_NEG_THRESHOLD = config.getfloat('RepCounter', 'velocity_neg_threshold', fallback=-20.0)
+        self.VELOCITY_POS_THRESHOLD = config.getfloat('RepCounter', 'velocity_pos_threshold', fallback=20.0)
+        self.VELOCITY_ZERO_THRESHOLD = config.getfloat('RepCounter', 'velocity_zero_threshold', fallback=10.0)
+        
+        self.last_time = 0.0
+        self.last_smoothed_angle = 0.0
 
     def run(self):
         self.running = True
         self.start_time = time.monotonic()
+        self.last_time = self.start_time
         self.setup_csv()
         while self.running:
             try:
@@ -135,31 +147,47 @@ class DataProcessor(threading.Thread):
                 except (OSError, RuntimeError):
                     logging.warning("BNO055 read error. Using last known angle.")
 
-            # --- Data Smoothing Logic ---
             self.angle_buffer.append(relative_angle)
-            # Only proceed if the buffer is full
             if len(self.angle_buffer) < self.SMOOTHING_WINDOW:
                 return
             
             smoothed_angle = sum(self.angle_buffer) / self.SMOOTHING_WINDOW
-            # --- End Smoothing Logic ---
-            
-            # --- Rep Counting Logic (now uses smoothed_angle) ---
-            if smoothed_angle < self.REP_THRESHOLD and not self.below_threshold:
-                self.rep_count += 1
-                self.below_threshold = True
-                logging.info(f"Rep #{self.rep_count} counted!")
-            elif smoothed_angle > self.REP_THRESHOLD:
-                self.below_threshold = False
-
             current_time = time.monotonic() - self.start_time
-            # Pass the smoothed_angle to the plot queue
-            data_packet = (current_time, smoothed_angle, x, y, self.rep_count)
+
+            delta_time = current_time - self.last_time
+            if delta_time > 0:
+                delta_angle = smoothed_angle - self.last_smoothed_angle
+                raw_velocity = delta_angle / delta_time
+                self.velocity_buffer.append(raw_velocity)
+            
+            smoothed_velocity = sum(self.velocity_buffer) / len(self.velocity_buffer) if self.velocity_buffer else 0.0
+
+            self.last_time = current_time
+            self.last_smoothed_angle = smoothed_angle
+            
+            # <<< MODIFIED: Rep counting state machine based on velocity
+            if self.rep_state == 0:  # State 0: Idle, waiting for downward movement
+                if smoothed_velocity < self.VELOCITY_NEG_THRESHOLD:
+                    self.rep_state = 1
+                    logging.info("Rep state -> 1 (Downward motion detected)")
+            
+            elif self.rep_state == 1:  # State 1: Downward motion, waiting for upward movement
+                if smoothed_velocity > self.VELOCITY_POS_THRESHOLD:
+                    self.rep_state = 2
+                    logging.info("Rep state -> 2 (Upward motion detected)")
+            
+            elif self.rep_state == 2:  # State 2: Upward motion, waiting for movement to stop
+                if abs(smoothed_velocity) < self.VELOCITY_ZERO_THRESHOLD:
+                    self.rep_count += 1
+                    self.rep_state = 0
+                    logging.info(f"Rep #{self.rep_count} counted! State -> 0 (Idle)")
+            # --- End of state machine ---
+
+            data_packet = (current_time, smoothed_angle, smoothed_velocity, x, y, self.rep_count)
             self.plot_queue.put(data_packet)
             
             if self.csv_writer:
-                # Log the smoothed angle to the CSV as well for consistency
-                csv_row = [f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{x:.4f}", f"{y:.4f}"]
+                csv_row = [f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{smoothed_velocity:.4f}", f"{x:.4f}", f"{y:.4f}"]
                 self.csv_writer.writerow(csv_row)
 
         except (ValueError, TypeError):
@@ -178,7 +206,7 @@ class DataProcessor(threading.Thread):
 
             self.csv_file = open(filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
-            self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'X', 'Y'])
+            self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y'])
             logging.info(f"Logging data to {filename}")
         except IOError as e:
             logging.error(f"Error opening CSV file: {e}")
@@ -193,7 +221,8 @@ class DataProcessor(threading.Thread):
     def stop(self):
         self.running = False
 
-# --- Main UI and Animation Window (No changes) ---
+# --- Main UI and Animation Window (Updated) ---
+# --- Main UI and Animation Window (Updated to Hide Velocity Plot) ---
 class RoutineWindow(tk.Toplevel):
     def __init__(self, parent, username, sensor, initial_angle=None):
         super().__init__(parent)
@@ -217,6 +246,7 @@ class RoutineWindow(tk.Toplevel):
         self.y_cop_history = deque(maxlen=self.PLOT_HISTORY_LENGTH)
         self.time_history = deque()
         self.angle_history = deque()
+        # <<< REMOVED: self.velocity_history is no longer needed for plotting
         
         self.rep_count_var = tk.StringVar(value="0")
 
@@ -267,7 +297,6 @@ class RoutineWindow(tk.Toplevel):
         )
         self.start_stop_button.pack(fill="both", expand=True, pady=10)
         
-        # --- Rep Counter UI ---
         rep_frame = ttk.Frame(control_frame)
         rep_frame.pack(fill='both', expand=True, pady=20)
 
@@ -276,7 +305,6 @@ class RoutineWindow(tk.Toplevel):
 
         rep_count_label = ttk.Label(rep_frame, textvariable=self.rep_count_var, style='RepCount.TLabel', anchor='center')
         rep_count_label.pack(fill='x')
-        # ----------------------
 
         exit_button = ttk.Button(
             control_frame,
@@ -289,13 +317,17 @@ class RoutineWindow(tk.Toplevel):
         data_frame = ttk.Frame(main_frame)
         data_frame.grid(row=0, column=1, sticky="nsew")
 
-        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(1, 2, figsize=(10, 5), dpi=100)
+        # <<< MODIFIED: Reverting to the original 2-plot setup
+        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(1, 2, figsize=(12, 5), dpi=100)
         
+        # --- Get Plotting Limits from Config ---
         cop_x_lim = config.getfloat('Plotting', 'cop_x_limit')
         cop_y_lim = config.getfloat('Plotting', 'cop_y_limit')
         angle_y_min = config.getfloat('Plotting', 'angle_y_min')
         angle_y_max = config.getfloat('Plotting', 'angle_y_max')
+        # <<< REMOVED: Velocity limits no longer needed for UI
 
+        # --- CoP Plot Setup (Unchanged) ---
         self.trail_line, = self.ax_cop.plot([], [], 'b-', alpha=0.5, lw=2)
         self.current_point_marker, = self.ax_cop.plot([], [], 'ro', markersize=8)
         self.ax_cop.set_xlim(-cop_x_lim, cop_x_lim); self.ax_cop.set_ylim(-cop_y_lim, cop_y_lim)
@@ -303,11 +335,16 @@ class RoutineWindow(tk.Toplevel):
         self.ax_cop.set_title("Center of Pressure"); self.ax_cop.grid(True)
         self.ax_cop.set_aspect('equal', adjustable='box')
         
+        # <<< MODIFIED: Simplified Angle Plot Setup ---
         self.angle_line, = self.ax_angle.plot([], [], 'g-')
-        self.ax_angle.set_title("Relative Angle"); self.ax_angle.set_xlabel("Time (s)")
-        self.ax_angle.set_ylabel("Angle (degrees)"); self.ax_angle.grid(True)
+        self.ax_angle.set_title("Relative Angle")
+        self.ax_angle.set_xlabel("Time (s)")
+        self.ax_angle.set_ylabel("Angle (degrees)")
+        self.ax_angle.grid(True)
         self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
         self.ax_angle.set_ylim(angle_y_min, angle_y_max)
+
+        # <<< REMOVED: All code for the secondary velocity axis and legend is gone.
         
         self.fig.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.fig, master=data_frame)
@@ -342,11 +379,12 @@ class RoutineWindow(tk.Toplevel):
 
         while processed_in_frame < 20:
             try:
-                # Unpack the new data packet with rep_count
-                current_time, relative_angle, x, y, rep_count = self.plot_queue.get_nowait()
+                # We still unpack velocity, but we won't use it for plotting
+                current_time, relative_angle, velocity, x, y, rep_count = self.plot_queue.get_nowait()
                 
                 self.time_history.append(current_time)
                 self.angle_history.append(relative_angle)
+                # <<< REMOVED: No need to store velocity history for plotting
                 self.x_cop_history.append(x)
                 self.y_cop_history.append(y)
                 
@@ -362,13 +400,16 @@ class RoutineWindow(tk.Toplevel):
             while self.time_history and (self.time_history[-1] - self.time_history[0] > self.TIME_WINDOW_SECONDS):
                 self.time_history.popleft()
                 self.angle_history.popleft()
+                # <<< REMOVED: No velocity history to pop
 
+        # Update CoP Plot
         self.trail_line.set_data(self.x_cop_history, self.y_cop_history)
         if self.x_cop_history:
              self.current_point_marker.set_data([self.x_cop_history[-1]], [self.y_cop_history[-1]])
         else:
              self.current_point_marker.set_data([], [])
 
+        # Update Angle Plot
         self.angle_line.set_data(self.time_history, self.angle_history)
         
         if self.time_history:
@@ -378,6 +419,7 @@ class RoutineWindow(tk.Toplevel):
             else:
                 self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
 
+        # <<< MODIFIED: Return only the artists that are still being drawn
         return self.trail_line, self.current_point_marker, self.angle_line
 
     def send_command(self, cmd):
