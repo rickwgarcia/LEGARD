@@ -64,6 +64,7 @@ class SerialThread(threading.Thread):
                 logging.error("Failed to send data; device may be disconnected.")
 
 # --- DataProcessor Class (Updated with Rep Cooldown Logic) ---
+# --- DataProcessor Class (Updated for Flexible Rep Counting) ---
 class DataProcessor(threading.Thread):
     def __init__(self, sensor, data_queue, plot_queue, username, initial_angle=None):
         super().__init__(daemon=True)
@@ -81,10 +82,13 @@ class DataProcessor(threading.Thread):
         
         # --- Rep Counter Attributes ---
         self.rep_count = 0
-        self.rep_state = 0
-        self.peak_velocity_in_rep = 0.0
-        self.last_rep_time = 0.0  # <<< NEW: Timestamp of the last counted rep
-
+        # <<< MODIFIED: New, more flexible state machine
+        # 0: Idle, waiting for movement
+        # 1: Upward motion detected, waiting for reversal (downward)
+        # 2: Downward motion detected, waiting for reversal (upward)
+        # 3: Reversal detected, waiting for movement to stop
+        self.rep_state = 0  
+        
         # --- Smoothing & Velocity Attributes ---
         self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window')
         self.angle_buffer = deque(maxlen=self.SMOOTHING_WINDOW)
@@ -92,11 +96,10 @@ class DataProcessor(threading.Thread):
         self.VELOCITY_SMOOTHING_WINDOW = config.getint('RepCounter', 'velocity_smoothing_window', fallback=5)
         self.velocity_buffer = deque(maxlen=self.VELOCITY_SMOOTHING_WINDOW)
         
-        # --- Get thresholds from config ---
-        self.VELOCITY_ZERO_THRESHOLD = config.getfloat('RepCounter', 'velocity_zero_threshold', fallback=5.0)
-        self.VELOCITY_MIN_PEAK_THRESHOLD = config.getfloat('RepCounter', 'velocity_min_peak_threshold', fallback=15.0)
-        self.REP_COOLDOWN_SECONDS = config.getfloat('RepCounter', 'rep_cooldown_seconds', fallback=1.5) # <<< NEW: Cooldown period
-
+        self.VELOCITY_NEG_THRESHOLD = config.getfloat('RepCounter', 'velocity_neg_threshold', fallback=-20.0)
+        self.VELOCITY_POS_THRESHOLD = config.getfloat('RepCounter', 'velocity_pos_threshold', fallback=20.0)
+        self.VELOCITY_ZERO_THRESHOLD = config.getfloat('RepCounter', 'velocity_zero_threshold', fallback=10.0)
+        
         self.last_time = 0.0
         self.last_smoothed_angle = 0.0
 
@@ -121,8 +124,9 @@ class DataProcessor(threading.Thread):
         try:
             x, y = map(float, cop_match.groups())
             if not (-20 < x < 20 and -20 < y < 20):
-                logging.warning(f"CoP outlier detected ({x:.1f}, {y:.1f}).")
-
+                logging.warning(f"CoP outlier detected ({x:.1f}, {y:.1f}). Skipping point.")
+                return
+            
             relative_angle = self.last_known_angle
             if self.sensor:
                 try:
@@ -130,56 +134,66 @@ class DataProcessor(threading.Thread):
                     if qw is not None:
                         qw = max(min(qw, 1.0), -1.0)
                         abs_angle = math.acos(qw) * 2 * (180 / math.pi)
-                        if self.initial_angle_w is None: self.initial_angle_w = abs_angle
+                        
+                        if self.initial_angle_w is None:
+                            self.initial_angle_w = abs_angle
+                            logging.warning("Initial angle not set by calibration. Setting on first read.")
+
                         angle_candidate = abs_angle - self.initial_angle_w
+                        
                         if angle_candidate >= 0 and abs(angle_candidate - self.last_known_angle) < 180:
                             relative_angle = angle_candidate
                             self.last_known_angle = relative_angle
-                except (OSError, RuntimeError): pass
+                        else:
+                            logging.warning(f"Angle outlier detected ({angle_candidate:.1f}). Using last known value.")
+                    else:
+                        logging.warning("BNO055 returned None. Using last known angle.")
+                except (OSError, RuntimeError):
+                    logging.warning("BNO055 read error. Using last known angle.")
 
             self.angle_buffer.append(relative_angle)
-            if len(self.angle_buffer) < self.SMOOTHING_WINDOW: return
+            if len(self.angle_buffer) < self.SMOOTHING_WINDOW:
+                return
             
             smoothed_angle = sum(self.angle_buffer) / self.SMOOTHING_WINDOW
             current_time = time.monotonic() - self.start_time
 
             delta_time = current_time - self.last_time
-            smoothed_velocity = 0.0
             if delta_time > 0:
                 delta_angle = smoothed_angle - self.last_smoothed_angle
                 raw_velocity = delta_angle / delta_time
                 self.velocity_buffer.append(raw_velocity)
-                if self.velocity_buffer:
-                    smoothed_velocity = sum(self.velocity_buffer) / len(self.velocity_buffer)
+            
+            smoothed_velocity = sum(self.velocity_buffer) / len(self.velocity_buffer) if self.velocity_buffer else 0.0
 
             self.last_time = current_time
             self.last_smoothed_angle = smoothed_angle
             
-            # <<< NEW: Check if we are inside the cooldown period
-            is_in_cooldown = (current_time - self.last_rep_time) < self.REP_COOLDOWN_SECONDS
+            # <<< MODIFIED: New rep counting state machine
+            if self.rep_state == 0:  # State 0: Idle, waiting for any movement
+                if smoothed_velocity > self.VELOCITY_POS_THRESHOLD:
+                    self.rep_state = 1 # Upward motion detected
+                    logging.info("Rep state -> 1 (Upward motion detected)")
+                elif smoothed_velocity < self.VELOCITY_NEG_THRESHOLD:
+                    self.rep_state = 2 # Downward motion detected
+                    logging.info("Rep state -> 2 (Downward motion detected)")
 
-            # State machine now checks for the cooldown
-            if self.rep_state == 0 and not is_in_cooldown: # <<< MODIFIED
-                if smoothed_velocity < -self.VELOCITY_ZERO_THRESHOLD:
-                    self.rep_state = 1
-                    self.peak_velocity_in_rep = 0.0
-            
-            elif self.rep_state == 1:
-                if smoothed_velocity > self.VELOCITY_ZERO_THRESHOLD:
-                    self.rep_state = 2
-            
-            elif self.rep_state == 2:
-                if smoothed_velocity > self.peak_velocity_in_rep:
-                    self.peak_velocity_in_rep = smoothed_velocity
-                
+            elif self.rep_state == 1: # State 1: Upward motion, waiting for reversal (downward)
+                if smoothed_velocity < self.VELOCITY_NEG_THRESHOLD:
+                    self.rep_state = 3
+                    logging.info("Rep state -> 3 (Reversal detected)")
+
+            elif self.rep_state == 2: # State 2: Downward motion, waiting for reversal (upward)
+                if smoothed_velocity > self.VELOCITY_POS_THRESHOLD:
+                    self.rep_state = 3
+                    logging.info("Rep state -> 3 (Reversal detected)")
+
+            elif self.rep_state == 3: # State 3: Reversal happened, waiting for movement to stop
                 if abs(smoothed_velocity) < self.VELOCITY_ZERO_THRESHOLD:
-                    if self.peak_velocity_in_rep > self.VELOCITY_MIN_PEAK_THRESHOLD:
-                        self.rep_count += 1
-                        self.last_rep_time = current_time # <<< NEW: Record the time of the rep
-                        logging.info(f"Rep #{self.rep_count} counted! (Peak V: {self.peak_velocity_in_rep:.1f})")
-                    else:
-                        logging.info(f"Movement ignored, too small. (Peak V: {self.peak_velocity_in_rep:.1f})")
+                    self.rep_count += 1
                     self.rep_state = 0
+                    logging.info(f"Rep #{self.rep_count} counted! State -> 0 (Idle)")
+            # --- End of state machine ---
 
             data_packet = (current_time, smoothed_angle, smoothed_velocity, x, y, self.rep_count)
             self.plot_queue.put(data_packet)
@@ -188,22 +202,33 @@ class DataProcessor(threading.Thread):
                 csv_row = [f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{smoothed_velocity:.4f}", f"{x:.4f}", f"{y:.4f}"]
                 self.csv_writer.writerow(csv_row)
 
-        except (ValueError, TypeError): pass
+        except (ValueError, TypeError):
+            logging.warning(f"Could not parse data line: '{line}'")
 
     def setup_csv(self):
         try:
             sessions_dir = config.get('Paths', 'sessions_base_dir')
             user_session_path = os.path.join(sessions_dir, self.username)
             os.makedirs(user_session_path, exist_ok=True)
-            filename = os.path.join(user_session_path, f"datalog_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+            
+            filename = os.path.join(
+                user_session_path, 
+                f"datalog_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            )
+
             self.csv_file = open(filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
             self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y'])
+            logging.info(f"Logging data to {filename}")
         except IOError as e:
             logging.error(f"Error opening CSV file: {e}")
+            self.csv_file = None
 
     def close_csv(self):
-        if self.csv_file: self.csv_file.close()
+        if self.csv_file:
+            logging.info(f"Closed log file: {self.csv_file.name}")
+            self.csv_file.close()
+            self.csv_file = None
 
     def stop(self):
         self.running = False
@@ -305,7 +330,7 @@ class RoutineWindow(tk.Toplevel):
         data_frame.grid(row=0, column=1, sticky="nsew")
 
         # <<< MODIFIED: Reverting to the original 2-plot setup
-        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(1, 2, figsize=(12, 5), dpi=100)
+        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(1, 2, figsize=(9, 3), dpi=100)
         
         # --- Get Plotting Limits from Config ---
         cop_x_lim = config.getfloat('Plotting', 'cop_x_limit')
