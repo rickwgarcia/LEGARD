@@ -234,6 +234,7 @@ class DataProcessor(threading.Thread):
         self.running = False
 
 # --- Main UI and Animation Window (Updated) ---
+## --- Main UI and Animation Window (Updated) ---
 # --- Main UI and Animation Window (Updated to Hide Velocity Plot) ---
 class RoutineWindow(tk.Toplevel):
     def __init__(self, parent, username, sensor, initial_angle=None):
@@ -258,7 +259,6 @@ class RoutineWindow(tk.Toplevel):
         self.y_cop_history = deque(maxlen=self.PLOT_HISTORY_LENGTH)
         self.time_history = deque()
         self.angle_history = deque()
-        # <<< REMOVED: self.velocity_history is no longer needed for plotting
         
         self.rep_count_var = tk.StringVar(value="0")
 
@@ -329,25 +329,27 @@ class RoutineWindow(tk.Toplevel):
         data_frame = ttk.Frame(main_frame)
         data_frame.grid(row=0, column=1, sticky="nsew")
 
-        # <<< MODIFIED: Reverting to the original 2-plot setup
-        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(1, 2, figsize=(9, 3), dpi=100)
+        # <<< MODIFIED: Added constrained_layout=True to automatically manage spacing
+        self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(
+            1, 2, figsize=(9, 3), dpi=100, constrained_layout=True
+        )
         
         # --- Get Plotting Limits from Config ---
         cop_x_lim = config.getfloat('Plotting', 'cop_x_limit')
         cop_y_lim = config.getfloat('Plotting', 'cop_y_limit')
         angle_y_min = config.getfloat('Plotting', 'angle_y_min')
         angle_y_max = config.getfloat('Plotting', 'angle_y_max')
-        # <<< REMOVED: Velocity limits no longer needed for UI
 
         # --- CoP Plot Setup (Unchanged) ---
         self.trail_line, = self.ax_cop.plot([], [], 'b-', alpha=0.5, lw=2)
         self.current_point_marker, = self.ax_cop.plot([], [], 'ro', markersize=8)
         self.ax_cop.set_xlim(-cop_x_lim, cop_x_lim); self.ax_cop.set_ylim(-cop_y_lim, cop_y_lim)
-        self.ax_cop.set_xlabel("X"); self.ax_cop.set_ylabel("Y")
+        self.ax_cop.set_xticklabels([])
+        self.ax_cop.set_yticklabels([])
         self.ax_cop.set_title("Center of Pressure"); self.ax_cop.grid(True)
         self.ax_cop.set_aspect('equal', adjustable='box')
         
-        # <<< MODIFIED: Simplified Angle Plot Setup ---
+        # --- Simplified Angle Plot Setup ---
         self.angle_line, = self.ax_angle.plot([], [], 'g-')
         self.ax_angle.set_title("Relative Angle")
         self.ax_angle.set_xlabel("Time (s)")
@@ -355,10 +357,10 @@ class RoutineWindow(tk.Toplevel):
         self.ax_angle.grid(True)
         self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
         self.ax_angle.set_ylim(angle_y_min, angle_y_max)
-
-        # <<< REMOVED: All code for the secondary velocity axis and legend is gone.
         
-        self.fig.tight_layout()
+        # <<< REMOVED: This line is no longer needed when using constrained_layout
+        # self.fig.tight_layout() 
+        
         self.canvas = FigureCanvasTkAgg(self.fig, master=data_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -396,7 +398,6 @@ class RoutineWindow(tk.Toplevel):
                 
                 self.time_history.append(current_time)
                 self.angle_history.append(relative_angle)
-                # <<< REMOVED: No need to store velocity history for plotting
                 self.x_cop_history.append(x)
                 self.y_cop_history.append(y)
                 
@@ -412,7 +413,6 @@ class RoutineWindow(tk.Toplevel):
             while self.time_history and (self.time_history[-1] - self.time_history[0] > self.TIME_WINDOW_SECONDS):
                 self.time_history.popleft()
                 self.angle_history.popleft()
-                # <<< REMOVED: No velocity history to pop
 
         # Update CoP Plot
         self.trail_line.set_data(self.x_cop_history, self.y_cop_history)
@@ -431,7 +431,6 @@ class RoutineWindow(tk.Toplevel):
             else:
                 self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
 
-        # <<< MODIFIED: Return only the artists that are still being drawn
         return self.trail_line, self.current_point_marker, self.angle_line
 
     def send_command(self, cmd):
