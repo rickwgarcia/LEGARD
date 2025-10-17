@@ -78,6 +78,11 @@ class DataProcessor(threading.Thread):
         self.initial_angle_w = initial_angle
         self.cop_pattern = re.compile(r"\(([-]?\d+\.\d+), ([-]?\d+\.\d+)\)")
         self.last_known_angle = 0.0
+        
+        # Rep Counter Attributes
+        self.rep_count = 0                                       # <<< ADDED
+        self.below_threshold = False                             # <<< ADDED
+        self.REP_THRESHOLD = 0.5                                 # <<< ADDED
 
     def run(self):
         self.running = True
@@ -126,11 +131,22 @@ class DataProcessor(threading.Thread):
                 except (OSError, RuntimeError):
                     logging.warning("BNO055 read error. Using last known angle.")
             
+            # --- Rep Counting Logic ---
+            if relative_angle < self.REP_THRESHOLD and not self.below_threshold: # <<< ADDED
+                self.rep_count += 1                                              # <<< ADDED
+                self.below_threshold = True                                      # <<< ADDED
+                logging.info(f"Rep #{self.rep_count} counted!")                  # <<< ADDED
+            elif relative_angle > self.REP_THRESHOLD:                                # <<< ADDED
+                self.below_threshold = False                                     # <<< ADDED
+
             current_time = time.monotonic() - self.start_time
             data_packet = (current_time, relative_angle, x, y)
             self.plot_queue.put(data_packet)
+            
             if self.csv_writer:
-                self.csv_writer.writerow([f"{v:.4f}" for v in data_packet])
+                # Create a new list for the CSV row including the rep count
+                csv_row = [f"{current_time:.4f}", self.rep_count, f"{relative_angle:.4f}", f"{x:.4f}", f"{y:.4f}"] # <<< MODIFIED
+                self.csv_writer.writerow(csv_row) # <<< MODIFIED
 
         except (ValueError, TypeError):
             logging.warning(f"Could not parse data line: '{line}'")
@@ -148,7 +164,8 @@ class DataProcessor(threading.Thread):
 
             self.csv_file = open(filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
-            self.csv_writer.writerow(['Time', 'Angle', 'X', 'Y'])
+            # Updated header for the new column
+            self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'X', 'Y']) # <<< MODIFIED
             logging.info(f"Logging data to {filename}")
         except IOError as e:
             logging.error(f"Error opening CSV file: {e}")
@@ -163,7 +180,7 @@ class DataProcessor(threading.Thread):
     def stop(self):
         self.running = False
 
-# --- Main UI and Animation Window (Updated) ---
+# --- Main UI and Animation Window (No changes) ---
 class RoutineWindow(tk.Toplevel):
     def __init__(self, parent, username, sensor, initial_angle=None):
         super().__init__(parent)

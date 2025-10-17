@@ -7,8 +7,13 @@ class CalibrationWindow(tk.Toplevel):
     """
     A fullscreen window for a two-step calibration process:
     1. Instantly zeroes the sensor when the window opens.
-    2. Measures the maximum angle of a leg lift.
+    2. Measures the maximum angle of a leg lift with a visual progress bar.
     """
+    ## NEW: Constants for the progress bar's appearance and range
+    BAR_MAX_ANGLE = 22  # The angle in degrees that represents 100% of the bar
+    BAR_WIDTH = 500     # Width of the bar in pixels
+    BAR_HEIGHT = 40     # Height of the bar in pixels
+
     def __init__(self, parent, sensor, on_complete_callback):
         """
         Initializes the calibration window and starts the calibration immediately.
@@ -45,7 +50,17 @@ class CalibrationWindow(tk.Toplevel):
             justify="center"
         )
         self.instruction_label.pack(pady=40)
-        
+
+        ## NEW: Create the Canvas widget for our custom progress bar
+        self.progress_canvas = tk.Canvas(
+            self.main_frame,
+            width=self.BAR_WIDTH,
+            height=self.BAR_HEIGHT,
+            bg='lightgrey', # The background color of the empty bar
+            highlightthickness=0
+        )
+        # We will pack this later when the tracking starts
+
         self.max_angle_label = ttk.Label(
             self.main_frame,
             text="",
@@ -65,11 +80,8 @@ class CalibrationWindow(tk.Toplevel):
             command=self.finish_calibration,
             style='Large.TButton'
         )
-        # Button is managed (hidden/shown) by the calibration logic
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        # Start the calibration process immediately after the window is drawn
         self.after(100, self.start_calibration)
 
     def start_calibration(self):
@@ -78,13 +90,11 @@ class CalibrationWindow(tk.Toplevel):
             messagebox.showerror("Sensor Error", "BNO055 sensor not found. Cannot calibrate.")
             self.on_closing()
             return
-            
         self.zero_sensor()
             
     def zero_sensor(self):
         """Reads the sensor to establish a baseline 'zero' angle."""
         try:
-            # Average a few readings for a stable zero-point
             readings_w = []
             for _ in range(10):
                 qw = self.sensor.quaternion[0]
@@ -101,13 +111,14 @@ class CalibrationWindow(tk.Toplevel):
 
             # --- Update UI for the next step ---
             self.instruction_label.config(text="Lift your leg as high as you can.")
+            
+            ## NEW: Show the progress bar canvas and the angle label
+            self.progress_canvas.pack(pady=20)
             self.max_angle_label.pack(pady=20)
             self.max_angle_label.config(text=f"Max Angle: {self.max_angle:.1f}°")
             
-            # Show the complete button
             self.complete_button.grid(row=0, column=0, ipady=10, ipadx=20)
             
-            # Start tracking the angle
             self.is_tracking = True
             self.track_max_angle()
 
@@ -121,6 +132,7 @@ class CalibrationWindow(tk.Toplevel):
         if not self.is_tracking:
             return
 
+        relative_angle = 0 # Default value
         try:
             if self.sensor and self.initial_angle is not None:
                 qw = self.sensor.quaternion[0]
@@ -131,12 +143,55 @@ class CalibrationWindow(tk.Toplevel):
                     
                     if relative_angle > self.max_angle:
                         self.max_angle = relative_angle
-                        self.max_angle_label.config(text=f"Max Angle: {self.max_angle:.1f}°")
+                    
+                    self.max_angle_label.config(text=f"Max Angle: {self.max_angle:.1f}°")
         except (OSError, RuntimeError) as e:
             logging.warning(f"Skipped an angle read during tracking: {e}")
         
+        ## NEW: Update the visual progress bar with the latest values
+        self._update_progress_bar(relative_angle, self.max_angle)
+        
         # Reschedule this method to run again
         self.after(50, self.track_max_angle)
+
+    ## NEW: This entire method handles drawing on the canvas
+    def _update_progress_bar(self, current_angle, max_angle):
+        """
+        Redraws the progress bar on the canvas.
+
+        Args:
+            current_angle (float): The current angle of the leg lift.
+            max_angle (float): The maximum angle achieved so far.
+        """
+        # Clear any previous drawings from the canvas
+        self.progress_canvas.delete("all")
+
+        # --- Draw the green fill bar for the current angle ---
+        # Calculate how wide the 'fill' rectangle should be
+        fill_ratio = current_angle / self.BAR_MAX_ANGLE
+        fill_width = self.BAR_WIDTH * fill_ratio
+        # Ensure the width doesn't go below 0 or beyond the bar's max width
+        fill_width = max(0, min(fill_width, self.BAR_WIDTH))
+        
+        self.progress_canvas.create_rectangle(
+            0, 0, fill_width, self.BAR_HEIGHT,
+            fill='mediumseagreen', # A nice green color
+            outline="" # No border on the fill
+        )
+
+        # --- Draw the red line for the max angle ---
+        # Calculate the x-coordinate for the max line
+        max_ratio = max_angle / self.BAR_MAX_ANGLE
+        max_x = self.BAR_WIDTH * max_ratio
+        # Ensure the line is within the bounds of the bar
+        max_x = max(0, min(max_x, self.BAR_WIDTH))
+
+        if max_x > 0: # Only draw the line if a max angle has been set
+            self.progress_canvas.create_line(
+                max_x, 0, max_x, self.BAR_HEIGHT,
+                fill='red',
+                width=3 # Make the line easy to see
+            )
 
     def finish_calibration(self):
         """Stops tracking, passes the zero-angle to the callback, and closes."""
