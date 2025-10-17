@@ -79,10 +79,14 @@ class DataProcessor(threading.Thread):
         self.cop_pattern = re.compile(r"\(([-]?\d+\.\d+), ([-]?\d+\.\d+)\)")
         self.last_known_angle = 0.0
         
-        # Rep Counter Attributes
-        self.rep_count = 0                                       # <<< ADDED
-        self.below_threshold = False                             # <<< ADDED
-        self.REP_THRESHOLD = 0.5                                 # <<< ADDED
+        # Rep Counter Attributes from config
+        self.rep_count = 0
+        self.below_threshold = False
+        self.REP_THRESHOLD = config.getfloat('RepCounter', 'rep_threshold') # <<< MODIFIED
+        
+        # --- Smoothing Filter from config ---
+        self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window') # <<< MODIFIED
+        self.angle_buffer = deque(maxlen=self.SMOOTHING_WINDOW)
 
     def run(self):
         self.running = True
@@ -130,23 +134,33 @@ class DataProcessor(threading.Thread):
                         logging.warning("BNO055 returned None. Using last known angle.")
                 except (OSError, RuntimeError):
                     logging.warning("BNO055 read error. Using last known angle.")
+
+            # --- Data Smoothing Logic ---
+            self.angle_buffer.append(relative_angle)
+            # Only proceed if the buffer is full
+            if len(self.angle_buffer) < self.SMOOTHING_WINDOW:
+                return
             
-            # --- Rep Counting Logic ---
-            if relative_angle < self.REP_THRESHOLD and not self.below_threshold: # <<< ADDED
-                self.rep_count += 1                                              # <<< ADDED
-                self.below_threshold = True                                      # <<< ADDED
-                logging.info(f"Rep #{self.rep_count} counted!")                  # <<< ADDED
-            elif relative_angle > self.REP_THRESHOLD:                                # <<< ADDED
-                self.below_threshold = False                                     # <<< ADDED
+            smoothed_angle = sum(self.angle_buffer) / self.SMOOTHING_WINDOW
+            # --- End Smoothing Logic ---
+            
+            # --- Rep Counting Logic (now uses smoothed_angle) ---
+            if smoothed_angle < self.REP_THRESHOLD and not self.below_threshold:
+                self.rep_count += 1
+                self.below_threshold = True
+                logging.info(f"Rep #{self.rep_count} counted!")
+            elif smoothed_angle > self.REP_THRESHOLD:
+                self.below_threshold = False
 
             current_time = time.monotonic() - self.start_time
-            data_packet = (current_time, relative_angle, x, y)
+            # Pass the smoothed_angle to the plot queue
+            data_packet = (current_time, smoothed_angle, x, y, self.rep_count)
             self.plot_queue.put(data_packet)
             
             if self.csv_writer:
-                # Create a new list for the CSV row including the rep count
-                csv_row = [f"{current_time:.4f}", self.rep_count, f"{relative_angle:.4f}", f"{x:.4f}", f"{y:.4f}"] # <<< MODIFIED
-                self.csv_writer.writerow(csv_row) # <<< MODIFIED
+                # Log the smoothed angle to the CSV as well for consistency
+                csv_row = [f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{x:.4f}", f"{y:.4f}"]
+                self.csv_writer.writerow(csv_row)
 
         except (ValueError, TypeError):
             logging.warning(f"Could not parse data line: '{line}'")
@@ -164,8 +178,7 @@ class DataProcessor(threading.Thread):
 
             self.csv_file = open(filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
-            # Updated header for the new column
-            self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'X', 'Y']) # <<< MODIFIED
+            self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'X', 'Y'])
             logging.info(f"Logging data to {filename}")
         except IOError as e:
             logging.error(f"Error opening CSV file: {e}")
@@ -205,6 +218,8 @@ class RoutineWindow(tk.Toplevel):
         self.time_history = deque()
         self.angle_history = deque()
         
+        self.rep_count_var = tk.StringVar(value="0")
+
         self.setup_ui()
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
@@ -240,6 +255,9 @@ class RoutineWindow(tk.Toplevel):
 
         style = ttk.Style(self)
         style.configure('Large.TButton', font=('Helvetica', 20, 'bold'), padding=15)
+        style.configure('Rep.TLabel', font=('Helvetica', 24, 'bold'))
+        style.configure('RepCount.TLabel', font=('Helvetica', 65, 'bold'))
+
 
         self.start_stop_button = ttk.Button(
             control_frame,
@@ -248,6 +266,17 @@ class RoutineWindow(tk.Toplevel):
             style='Large.TButton'
         )
         self.start_stop_button.pack(fill="both", expand=True, pady=10)
+        
+        # --- Rep Counter UI ---
+        rep_frame = ttk.Frame(control_frame)
+        rep_frame.pack(fill='both', expand=True, pady=20)
+
+        rep_label = ttk.Label(rep_frame, text="REPS", style='Rep.TLabel', anchor='center')
+        rep_label.pack(fill='x')
+
+        rep_count_label = ttk.Label(rep_frame, textvariable=self.rep_count_var, style='RepCount.TLabel', anchor='center')
+        rep_count_label.pack(fill='x')
+        # ----------------------
 
         exit_button = ttk.Button(
             control_frame,
@@ -309,17 +338,26 @@ class RoutineWindow(tk.Toplevel):
 
     def animate_plot(self, frame):
         processed_in_frame = 0
+        latest_rep_count = self.rep_count_var.get()
+
         while processed_in_frame < 20:
             try:
-                current_time, relative_angle, x, y = self.plot_queue.get_nowait()
+                # Unpack the new data packet with rep_count
+                current_time, relative_angle, x, y, rep_count = self.plot_queue.get_nowait()
+                
                 self.time_history.append(current_time)
                 self.angle_history.append(relative_angle)
                 self.x_cop_history.append(x)
                 self.y_cop_history.append(y)
+                
+                latest_rep_count = rep_count
                 processed_in_frame += 1
+
             except queue.Empty:
                 break
         
+        self.rep_count_var.set(latest_rep_count)
+
         if self.time_history:
             while self.time_history and (self.time_history[-1] - self.time_history[0] > self.TIME_WINDOW_SECONDS):
                 self.time_history.popleft()
