@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import serial
 import serial.tools.list_ports
 import threading
@@ -63,8 +63,7 @@ class SerialThread(threading.Thread):
             except serial.SerialException:
                 logging.error("Failed to send data; device may be disconnected.")
 
-# --- DataProcessor Class (Updated with Rep Cooldown Logic) ---
-# --- DataProcessor Class (Updated for Flexible Rep Counting) ---
+# --- DataProcessor Class (No changes) ---
 class DataProcessor(threading.Thread):
     def __init__(self, sensor, data_queue, plot_queue, username, initial_angle=None):
         super().__init__(daemon=True)
@@ -79,29 +78,20 @@ class DataProcessor(threading.Thread):
         self.initial_angle_w = initial_angle
         self.cop_pattern = re.compile(r"\(([-]?\d+\.\d+), ([-]?\d+\.\d+)\)")
         self.last_known_angle = 0.0
-        
-        # --- Rep Counter Attributes ---
         self.rep_count = 0
-        # <<< MODIFIED: New, more flexible state machine
-        # 0: Idle, waiting for movement
-        # 1: Upward motion detected, waiting for reversal (downward)
-        # 2: Downward motion detected, waiting for reversal (upward)
-        # 3: Reversal detected, waiting for movement to stop
-        self.rep_state = 0  
-        
-        # --- Smoothing & Velocity Attributes ---
+        self.rep_state = 0
         self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window')
         self.angle_buffer = deque(maxlen=self.SMOOTHING_WINDOW)
-        
         self.VELOCITY_SMOOTHING_WINDOW = config.getint('RepCounter', 'velocity_smoothing_window', fallback=5)
         self.velocity_buffer = deque(maxlen=self.VELOCITY_SMOOTHING_WINDOW)
-        
         self.VELOCITY_NEG_THRESHOLD = config.getfloat('RepCounter', 'velocity_neg_threshold', fallback=-20.0)
         self.VELOCITY_POS_THRESHOLD = config.getfloat('RepCounter', 'velocity_pos_threshold', fallback=20.0)
         self.VELOCITY_ZERO_THRESHOLD = config.getfloat('RepCounter', 'velocity_zero_threshold', fallback=10.0)
-        
         self.last_time = 0.0
         self.last_smoothed_angle = 0.0
+        
+        self.should_save = True
+        self.log_filename = None
 
     def run(self):
         self.running = True
@@ -169,31 +159,29 @@ class DataProcessor(threading.Thread):
             self.last_time = current_time
             self.last_smoothed_angle = smoothed_angle
             
-            # <<< MODIFIED: New rep counting state machine
-            if self.rep_state == 0:  # State 0: Idle, waiting for any movement
+            if self.rep_state == 0:
                 if smoothed_velocity > self.VELOCITY_POS_THRESHOLD:
-                    self.rep_state = 1 # Upward motion detected
+                    self.rep_state = 1
                     logging.info("Rep state -> 1 (Upward motion detected)")
                 elif smoothed_velocity < self.VELOCITY_NEG_THRESHOLD:
-                    self.rep_state = 2 # Downward motion detected
+                    self.rep_state = 2
                     logging.info("Rep state -> 2 (Downward motion detected)")
 
-            elif self.rep_state == 1: # State 1: Upward motion, waiting for reversal (downward)
+            elif self.rep_state == 1:
                 if smoothed_velocity < self.VELOCITY_NEG_THRESHOLD:
                     self.rep_state = 3
                     logging.info("Rep state -> 3 (Reversal detected)")
 
-            elif self.rep_state == 2: # State 2: Downward motion, waiting for reversal (upward)
+            elif self.rep_state == 2:
                 if smoothed_velocity > self.VELOCITY_POS_THRESHOLD:
                     self.rep_state = 3
                     logging.info("Rep state -> 3 (Reversal detected)")
 
-            elif self.rep_state == 3: # State 3: Reversal happened, waiting for movement to stop
+            elif self.rep_state == 3:
                 if abs(smoothed_velocity) < self.VELOCITY_ZERO_THRESHOLD:
                     self.rep_count += 1
                     self.rep_state = 0
                     logging.info(f"Rep #{self.rep_count} counted! State -> 0 (Idle)")
-            # --- End of state machine ---
 
             data_packet = (current_time, smoothed_angle, smoothed_velocity, x, y, self.rep_count)
             self.plot_queue.put(data_packet)
@@ -204,40 +192,62 @@ class DataProcessor(threading.Thread):
 
         except (ValueError, TypeError):
             logging.warning(f"Could not parse data line: '{line}'")
-
+            
     def setup_csv(self):
         try:
             sessions_dir = config.get('Paths', 'sessions_base_dir')
             user_session_path = os.path.join(sessions_dir, self.username)
             os.makedirs(user_session_path, exist_ok=True)
             
-            filename = os.path.join(
+            self.log_filename = os.path.join(
                 user_session_path, 
                 f"datalog_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             )
 
-            self.csv_file = open(filename, 'w', newline='', encoding='utf-8')
+            self.csv_file = open(self.log_filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
             self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y'])
-            logging.info(f"Logging data to {filename}")
+            logging.info(f"Logging data to {self.log_filename}")
         except IOError as e:
             logging.error(f"Error opening CSV file: {e}")
             self.csv_file = None
 
     def close_csv(self):
         if self.csv_file:
-            logging.info(f"Closed log file: {self.csv_file.name}")
+            logging.info(f"Closing log file stream for: {self.log_filename}")
             self.csv_file.close()
             self.csv_file = None
+
+            if self.should_save:
+                logging.info(f"Session data SAVED to {self.log_filename}")
+            else:
+                try:
+                    os.remove(self.log_filename)
+                    logging.info(f"Session data DISCARDED for {self.log_filename}")
+                except OSError as e:
+                    logging.error(f"Error removing discarded log file {self.log_filename}: {e}")
+
+    def discard_data(self):
+        """Sets the flag to delete the CSV file upon closing."""
+        self.should_save = False
+        logging.info("CSV file marked for discarding on exit.")
 
     def stop(self):
         self.running = False
 
-# --- Main UI and Animation Window (Updated) ---
-## --- Main UI and Animation Window (Updated) ---
-# --- Main UI and Animation Window (Updated to Hide Velocity Plot) ---
+# --- RoutineWindow (Updated) ---
 class RoutineWindow(tk.Toplevel):
-    def __init__(self, parent, username, sensor, initial_angle=None):
+    def __init__(self, parent, username, sensor, initial_angle=None, max_angle=None):
+        """
+        Initializes the routine window.
+
+        Args:
+            parent: The parent window.
+            username (str): The name of the user for data logging.
+            sensor: The BNO055 sensor object.
+            initial_angle (float, optional): The zeroed angle from calibration.
+            max_angle (float, optional): The max angle from calibration. Defaults to None.
+        """
         super().__init__(parent)
         self.username = username
         self.title("Live Routine Session")
@@ -246,6 +256,7 @@ class RoutineWindow(tk.Toplevel):
 
         self.is_streaming = False
         self.sensor = sensor
+        self.calibrated_max_angle = max_angle  # Store the max angle
 
         self.serial_thread = None
         self.data_processor_thread = None
@@ -329,18 +340,15 @@ class RoutineWindow(tk.Toplevel):
         data_frame = ttk.Frame(main_frame)
         data_frame.grid(row=0, column=1, sticky="nsew")
 
-        # <<< MODIFIED: Added constrained_layout=True to automatically manage spacing
         self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(
             1, 2, figsize=(9, 3), dpi=100, constrained_layout=True
         )
         
-        # --- Get Plotting Limits from Config ---
         cop_x_lim = config.getfloat('Plotting', 'cop_x_limit')
         cop_y_lim = config.getfloat('Plotting', 'cop_y_limit')
         angle_y_min = config.getfloat('Plotting', 'angle_y_min')
         angle_y_max = config.getfloat('Plotting', 'angle_y_max')
 
-        # --- CoP Plot Setup (Unchanged) ---
         self.trail_line, = self.ax_cop.plot([], [], 'b-', alpha=0.5, lw=2)
         self.current_point_marker, = self.ax_cop.plot([], [], 'ro', markersize=8)
         self.ax_cop.set_xlim(-cop_x_lim, cop_x_lim); self.ax_cop.set_ylim(-cop_y_lim, cop_y_lim)
@@ -349,7 +357,6 @@ class RoutineWindow(tk.Toplevel):
         self.ax_cop.set_title("Center of Pressure"); self.ax_cop.grid(True)
         self.ax_cop.set_aspect('equal', adjustable='box')
         
-        # --- Simplified Angle Plot Setup ---
         self.angle_line, = self.ax_angle.plot([], [], 'g-')
         self.ax_angle.set_title("Relative Angle")
         self.ax_angle.set_xlabel("Time (s)")
@@ -358,8 +365,15 @@ class RoutineWindow(tk.Toplevel):
         self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
         self.ax_angle.set_ylim(angle_y_min, angle_y_max)
         
-        # <<< REMOVED: This line is no longer needed when using constrained_layout
-        # self.fig.tight_layout() 
+        # --- NEW: Draw the max angle line from calibration ---
+        if self.calibrated_max_angle is not None and self.calibrated_max_angle > 0:
+            self.ax_angle.axhline(
+                y=self.calibrated_max_angle,
+                color='red',
+                linestyle='--', # Dotted line
+                linewidth=1.5
+            )
+            logging.info(f"Drawing calibrated max angle line at {self.calibrated_max_angle:.2f}°")
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=data_frame)
         self.canvas.draw()
@@ -393,7 +407,6 @@ class RoutineWindow(tk.Toplevel):
 
         while processed_in_frame < 20:
             try:
-                # We still unpack velocity, but we won't use it for plotting
                 current_time, relative_angle, velocity, x, y, rep_count = self.plot_queue.get_nowait()
                 
                 self.time_history.append(current_time)
@@ -414,14 +427,12 @@ class RoutineWindow(tk.Toplevel):
                 self.time_history.popleft()
                 self.angle_history.popleft()
 
-        # Update CoP Plot
         self.trail_line.set_data(self.x_cop_history, self.y_cop_history)
         if self.x_cop_history:
              self.current_point_marker.set_data([self.x_cop_history[-1]], [self.y_cop_history[-1]])
         else:
              self.current_point_marker.set_data([], [])
 
-        # Update Angle Plot
         self.angle_line.set_data(self.time_history, self.angle_history)
         
         if self.time_history:
@@ -440,6 +451,29 @@ class RoutineWindow(tk.Toplevel):
             logging.warning("Cannot send command: Not connected.")
 
     def on_closing(self):
-        logging.info("Exit button clicked. Shutting down...")
-        self.disconnect()
-        self.destroy()
+        """
+        Handles the window closing event. Stops the data stream and asks
+        the user if they want to save the session data.
+        """
+        if self.is_streaming:
+            self.toggle_stream()
+
+        answer = messagebox.askyesnocancel(
+            title="Exit Session",
+            message="Do you want to save this session's data?",
+            parent=self
+        )
+
+        if answer is True:  # "Yes"
+            logging.info("User chose to SAVE. Shutting down...")
+            self.disconnect()
+            self.destroy()
+        elif answer is False:  # "No"
+            logging.info("User chose to DISCARD. Shutting down...")
+            if self.data_processor_thread:
+                self.data_processor_thread.discard_data()
+            self.disconnect()
+            self.destroy()
+        else:  # "Cancel" (answer is None)
+            logging.info("User cancelled the exit operation. Returning to session.")
+            pass

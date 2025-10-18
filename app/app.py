@@ -195,17 +195,18 @@ class Dashboard(tk.Tk):
         # Instead of opening RoutineWindow directly, open the calibration window
         CalibrationWindow(self, self.sensor, on_complete_callback=self.launch_routine_window)
 
-    def launch_routine_window(self, initial_angle):
+    def launch_routine_window(self, initial_angle, max_angle):
         """
         This is the callback function called by CalibrationWindow.
-        It receives the calibration result and opens the main routine window.
+        It receives the calibration results and opens the main routine window.
         """
         if self.routine_window and self.routine_window.winfo_exists():
             self.routine_window.lift()
             return
         
-        # Now, create the routine window and pass the sensor and initial angle to it
-        self.routine_window = RoutineWindow(self, self.username, self.sensor, initial_angle)
+        # Now, create the routine window and pass the sensor, initial angle, 
+        # and max_angle to it.
+        self.routine_window = RoutineWindow(self, self.username, self.sensor, initial_angle, max_angle)
         self.routine_window.focus()
 
     def create_history_tab(self, parent_frame):
