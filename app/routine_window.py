@@ -298,7 +298,8 @@ class DataProcessor(threading.Thread):
                 self.plot_queue.put(data_packet)
                 
                 if self.csv_writer:
-                    csv_row = [f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{smoothed_velocity:.4f}", f"{x:.4f}", f"{y:.4f}", self.current_set]
+                    # 'Set' column is now at the beginning
+                    csv_row = [self.current_set, f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{smoothed_velocity:.4f}", f"{x:.4f}", f"{y:.4f}"]
                     self.csv_writer.writerow(csv_row)
             # --- End of self.set_active block ---
 
@@ -318,7 +319,8 @@ class DataProcessor(threading.Thread):
 
             self.csv_file = open(self.log_filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
-            self.csv_writer.writerow(['Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y', 'Set'])
+            # 'Set' column is now at the beginning
+            self.csv_writer.writerow(['Set', 'Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y'])
             logging.info(f"Logging data to {self.log_filename}")
         except IOError as e:
             logging.error(f"Error opening CSV file: {e}")
@@ -345,6 +347,7 @@ class DataProcessor(threading.Thread):
 
     def stop(self):
         self.running = False
+
 
 # --- RoutineWindow Class ---
 class RoutineWindow(tk.Toplevel):
@@ -376,7 +379,10 @@ class RoutineWindow(tk.Toplevel):
         self.angle_history = deque()
         
         self.rep_count_var = tk.StringVar(value="0")
-        self.current_set_var = tk.StringVar(value=f"Set: {self.current_set} / {self.total_sets}")
+        
+        # --- MODIFIED LINE ---
+        # Removed " / {self.total_sets}"
+        self.current_set_var = tk.StringVar(value=f"Set: {self.current_set}")
 
         self.setup_ui()
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -422,10 +428,11 @@ class RoutineWindow(tk.Toplevel):
         control_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
         style = ttk.Style(self)
-        style.configure('Large.TButton', font=('Helvetica', 20, 'bold'), padding=15)
-        style.configure('Rep.TLabel', font=('Helvetica', 24, 'bold'))
-        style.configure('RepCount.TLabel', font=('Helvetica', 65, 'bold'))
-        style.configure('Set.TLabel', font=('Helvetica', 28, 'bold'), foreground='RoyalBlue')
+        # --- MODIFIED LINES (Font sizes) ---
+        style.configure('Large.TButton', font=('Helvetica', 16, 'bold'), padding=15)
+        style.configure('Rep.TLabel', font=('Helvetica', 12, 'bold'))
+        style.configure('RepCount.TLabel', font=('Helvetica', 35, 'bold'))
+        style.configure('Set.TLabel', font=('Helvetica', 20, 'bold'), foreground='RoyalBlue')
 
 
         self.start_stop_button = ttk.Button(
@@ -540,7 +547,9 @@ class RoutineWindow(tk.Toplevel):
         if command.startswith("SET_START:"):
             set_num_started = int(command.split(":")[1])
             self.current_set = set_num_started
-            self.current_set_var.set(f"Set: {self.current_set} / {self.total_sets}")
+            
+            # --- MODIFIED LINE ---
+            self.current_set_var.set(f"Set: {self.current_set}")
             
             self.time_history.clear()
             self.angle_history.clear()
@@ -566,7 +575,9 @@ class RoutineWindow(tk.Toplevel):
                 ))
             else:
                 self.current_set = next_set
-                self.current_set_var.set(f"Set: {self.current_set} / {self.total_sets}")
+                
+                # --- MODIFIED LINE ---
+                self.current_set_var.set(f"Set: {self.current_set}")
                 self.start_stop_button.config(text=f"Start Set {self.current_set}")
                 self.after(10, lambda set_num=set_num_finished, ns=next_set: self.show_blocking_message(
                     f"Set {set_num} Complete!", 
