@@ -88,7 +88,7 @@ class DataProcessor(threading.Thread):
         self.last_time = 0.0
         self.last_smoothed_angle = 0.0
         self.consecutive_failed_reps = 0
-        self.time_at_zero_velocity_start = None
+        # self.time_at_zero_velocity_start = None  <-- REMOVED
         self.max_angle_for_current_rep = 0.0
         
         self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window')
@@ -107,7 +107,7 @@ class DataProcessor(threading.Thread):
             logging.warning("Calibrated max angle is <= 0. Set failure logic will be disabled.")
             self.calibrated_max_angle = 9999.0 # Effectively disable check
             
-        self.ZERO_VELOCITY_TIMEOUT = config.getfloat('RepCounter', 'zero_velocity_timeout', fallback=4.0)
+        # self.ZERO_VELOCITY_TIMEOUT = config.getfloat('RepCounter', 'zero_velocity_timeout', fallback=4.0)  <-- REMOVED
         self.MAX_ANGLE_TOLERANCE_PERCENT = config.getfloat('RepCounter', 'max_angle_tolerance_percent', fallback=90.0)
         self.target_angle_threshold = self.calibrated_max_angle * (self.MAX_ANGLE_TOLERANCE_PERCENT / 100.0)
         
@@ -129,12 +129,9 @@ class DataProcessor(threading.Thread):
                     logging.error(f"Error in parse_and_process: {e}", exc_info=True)
                     
             except queue.Empty:
-                # If set is active and queue is empty, check for zero velocity timeout
-                if self.set_active:
-                    try:
-                        self.check_zero_velocity_timeout(is_moving=False)
-                    except Exception as e:
-                        logging.error(f"Error in check_zero_velocity_timeout: {e}", exc_info=True)
+                # --- MODIFICATION ---
+                # The check for zero velocity timeout when the queue was empty
+                # has been removed. We just continue and wait for more data.
                 continue
             except Exception as e:
                 logging.critical(f"DataProcessor main loop error: {e}", exc_info=True)
@@ -154,7 +151,7 @@ class DataProcessor(threading.Thread):
         # self.angle_buffer.clear()
         # self.velocity_buffer.clear()
         self.consecutive_failed_reps = 0
-        self.time_at_zero_velocity_start = None
+        # self.time_at_zero_velocity_start = None  <-- REMOVED
         self.max_angle_for_current_rep = 0.0
         self.set_active = True
         
@@ -171,21 +168,9 @@ class DataProcessor(threading.Thread):
         self.plot_queue.put(f"SET_END:{self.current_set}")
         self.current_set += 1
 
-    def check_zero_velocity_timeout(self, is_moving):
-        """Checks for the zero-velocity-while-in-rep timeout condition."""
-        if self.rep_state != 0 and not is_moving:
-            if self.time_at_zero_velocity_start is None:
-                self.time_at_zero_velocity_start = time.monotonic()
-                logging.debug("Zero velocity timer STARTED (in rep, not moving).")
-            
-            elapsed_at_zero = time.monotonic() - self.time_at_zero_velocity_start
-            if elapsed_at_zero > self.ZERO_VELOCITY_TIMEOUT:
-                logging.info(f"Set ended: 0 velocity for {self.ZERO_VELOCITY_TIMEOUT}s.")
-                self.end_set(reason="Zero velocity timeout")
-        else:
-            if self.time_at_zero_velocity_start is not None:
-                logging.debug("Moving or idle, zero velocity timer RESET.")
-            self.time_at_zero_velocity_start = None
+    # --- REMOVED ---
+    # The entire `check_zero_velocity_timeout` method has been deleted.
+    # ---
 
     def parse_and_process(self, line):
         cop_match = self.cop_pattern.match(line)
@@ -249,9 +234,11 @@ class DataProcessor(threading.Thread):
             # --- MODIFICATION: All set logic is now inside this block ---
             if self.set_active:
                 
+                # --- REMOVED ---
                 # --- Set Ending Logic Check 1: Zero Velocity Timeout ---
-                self.check_zero_velocity_timeout(is_moving)
-                if not self.set_active: return # Set was ended, stop processing
+                # self.check_zero_velocity_timeout(is_moving)
+                # if not self.set_active: return # Set was ended, stop processing
+                # ---
 
                 # --- Rep State Machine ---
                 if self.rep_state == 0: # IDLE
