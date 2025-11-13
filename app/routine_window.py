@@ -66,7 +66,7 @@ class SerialThread(threading.Thread):
             except serial.SerialException:
                 logging.error("Failed to send data; device may be disconnected.")
 
-# --- DataProcessor Class (Modified) ---
+# --- DataProcessor Class (Unchanged) ---
 class DataProcessor(threading.Thread):
     def __init__(self, sensor, data_queue, plot_queue, username, initial_angle=None, max_angle=None):
         super().__init__(daemon=True)
@@ -311,7 +311,7 @@ class DataProcessor(threading.Thread):
     def stop(self):
         self.running = False
 
-# --- NEW CLASS: RestTimerWindow ---
+# --- NEW CLASS: RestTimerWindow (Unchanged) ---
 class RestTimerWindow(tk.Toplevel):
     def __init__(self, parent, total_seconds):
         super().__init__(parent)
@@ -389,6 +389,14 @@ class RoutineWindow(tk.Toplevel):
         self.is_streaming = False
         self.sensor = sensor
         self.calibrated_max_angle = max_angle
+
+        # --- MODIFICATION: Calculate the target threshold for plotting ---
+        self.target_angle_threshold = None
+        if self.calibrated_max_angle is not None and self.calibrated_max_angle > 0:
+            # Read the same config value used by DataProcessor
+            MAX_ANGLE_TOLERANCE_PERCENT = config.getfloat('RepCounter', 'max_angle_tolerance_percent', fallback=90.0)
+            self.target_angle_threshold = self.calibrated_max_angle * (MAX_ANGLE_TOLERANCE_PERCENT / 100.0)
+        # --- END MODIFICATION ---
 
         self.serial_thread = None
         self.data_processor_thread = None
@@ -514,14 +522,16 @@ class RoutineWindow(tk.Toplevel):
         self.ax_angle.set_xlim(0, self.TIME_WINDOW_SECONDS)
         self.ax_angle.set_ylim(angle_y_min, angle_y_max)
         
-        if self.calibrated_max_angle is not None and self.calibrated_max_angle > 0:
+        # --- MODIFICATION: Draw only the Target Threshold line ---
+        if self.target_angle_threshold is not None:
             self.ax_angle.axhline(
-                y=self.calibrated_max_angle,
-                color='red',
-                linestyle='--',
+                y=self.target_angle_threshold,
+                color='green',
+                linestyle='--', # Dashed line
                 linewidth=1.5
             )
-            logging.info(f"Drawing calibrated max angle line at {self.calibrated_max_angle:.2f}°")
+            logging.info(f"Drawing target threshold line at {self.target_angle_threshold:.2f}°")
+        # --- END MODIFICATION ---
         
         self.canvas = FigureCanvasTkAgg(self.fig, master=data_frame)
         self.canvas.draw()
@@ -561,7 +571,7 @@ class RoutineWindow(tk.Toplevel):
         logging.debug(f"Showing message: '{title}'")
         messagebox.showinfo(title, message, parent=self)
 
-    # --- MODIFIED ---
+    # --- MODIFIED (Unchanged from original) ---
     def handle_queue_command(self, command):
         """Handles string-based commands from the plot_queue."""
         logging.debug(f"GUI received command: {command}")
