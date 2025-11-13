@@ -140,6 +140,19 @@ class DataProcessor(threading.Thread):
         self.last_time = self.start_time
         self.consecutive_failed_reps = 0
         self.max_angle_for_current_rep = 0.0
+        
+        # --- FIX ---
+        # Clear data buffers to prevent stale data from
+        # contaminating the new set's calculations.
+        self.angle_buffer.clear()
+        self.velocity_buffer.clear()
+        
+        # Reset the "last" values to prevent a huge initial
+        # delta calculation.
+        # Use last_known_angle as the best guess for the starting position.
+        self.last_smoothed_angle = self.last_known_angle 
+        # --- END FIX ---
+
         self.set_active = True
         
         self.plot_queue.put(f"SET_START:{self.current_set}")
