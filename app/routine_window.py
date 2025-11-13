@@ -18,6 +18,11 @@ from matplotlib.animation import FuncAnimation
 import logging
 
 # Import the config object
+# Make sure you have a 'config_manager.py' file with a 'config' object
+# Example config_manager.py:
+# import configparser
+# config = configparser.ConfigParser()
+# config.read('config.ini') # Ensure config.ini exists
 from config_manager import config
 
 # --- SerialThread Class (Unchanged) ---
@@ -66,7 +71,7 @@ class SerialThread(threading.Thread):
             except serial.SerialException:
                 logging.error("Failed to send data; device may be disconnected.")
 
-# --- DataProcessor Class (Unchanged) ---
+# --- DataProcessor Class (MODIFIED) ---
 class DataProcessor(threading.Thread):
     def __init__(self, sensor, data_queue, plot_queue, username, initial_angle=None, max_angle=None):
         super().__init__(daemon=True)
@@ -89,6 +94,8 @@ class DataProcessor(threading.Thread):
         self.last_smoothed_angle = 0.0
         self.consecutive_failed_reps = 0
         self.max_angle_for_current_rep = 0.0
+        self.is_first_smooth_calc = True
+        self.readings_to_discard = 0
         
         self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window')
         self.angle_buffer = deque(maxlen=self.SMOOTHING_WINDOW)
@@ -101,14 +108,17 @@ class DataProcessor(threading.Thread):
         # --- Set logic variables ---
         self.current_set = 1
         self.set_active = False # Flag to control processing
+        
+        # --- THIS IS THE VALUE WE WILL SAVE ---
         self.calibrated_max_angle = max_angle if max_angle is not None else 90.0
+        
         if self.calibrated_max_angle <= 0:
             logging.warning("Calibrated max angle is <= 0. Set failure logic will be disabled.")
-            self.calibrated_max_angle = 9999.0 # Effectively disable check
+            self.target_angle_threshold = 9999.0 # Effectively disable check
+        else:
+            self.MAX_ANGLE_TOLERANCE_PERCENT = config.getfloat('RepCounter', 'max_angle_tolerance_percent', fallback=90.0)
+            self.target_angle_threshold = self.calibrated_max_angle * (self.MAX_ANGLE_TOLERANCE_PERCENT / 100.0)
             
-        self.MAX_ANGLE_TOLERANCE_PERCENT = config.getfloat('RepCounter', 'max_angle_tolerance_percent', fallback=90.0)
-        self.target_angle_threshold = self.calibrated_max_angle * (self.MAX_ANGLE_TOLERANCE_PERCENT / 100.0)
-        
         self.should_save = True
         self.log_filename = None
 
@@ -141,17 +151,12 @@ class DataProcessor(threading.Thread):
         self.consecutive_failed_reps = 0
         self.max_angle_for_current_rep = 0.0
         
-        # --- FIX ---
-        # Clear data buffers to prevent stale data from
-        # contaminating the new set's calculations.
         self.angle_buffer.clear()
         self.velocity_buffer.clear()
         
-        # Reset the "last" values to prevent a huge initial
-        # delta calculation.
-        # Use last_known_angle as the best guess for the starting position.
-        self.last_smoothed_angle = self.last_known_angle 
-        # --- END FIX ---
+        self.last_known_angle = 0.0
+        self.is_first_smooth_calc = True
+        self.readings_to_discard = 5
 
         self.set_active = True
         
@@ -165,11 +170,8 @@ class DataProcessor(threading.Thread):
         logging.info(f"--- Ending Set {self.current_set} ({reason}) ---")
         self.set_active = False
         
-        # --- MODIFICATION ---
-        # Send the reason and final rep count to the GUI
         rep_count_at_stop = self.rep_count
         self.plot_queue.put(f"SET_END:{self.current_set}:{reason}:{rep_count_at_stop}")
-        # ---
         
         self.current_set += 1
 
@@ -208,6 +210,11 @@ class DataProcessor(threading.Thread):
                 except (OSError, RuntimeError):
                     logging.warning("BNO055 read error. Using last known angle.")
 
+            if self.set_active and self.readings_to_discard > 0:
+                self.readings_to_discard -= 1
+                logging.debug(f"Discarding initial reading. {self.readings_to_discard} left.")
+                return
+
             self.angle_buffer.append(relative_angle)
             if len(self.angle_buffer) < self.SMOOTHING_WINDOW:
                 return
@@ -216,10 +223,16 @@ class DataProcessor(threading.Thread):
             current_time = time.monotonic() - self.start_time 
             delta_time = current_time - self.last_time
 
-            if delta_time > 0:
+            delta_angle = 0.0
+            raw_velocity = 0.0
+
+            if self.is_first_smooth_calc:
+                self.is_first_smooth_calc = False
+            elif delta_time > 0:
                 delta_angle = smoothed_angle - self.last_smoothed_angle
                 raw_velocity = delta_angle / delta_time
-                self.velocity_buffer.append(raw_velocity)
+            
+            self.velocity_buffer.append(raw_velocity)
             
             smoothed_velocity = sum(self.velocity_buffer) / len(self.velocity_buffer) if self.velocity_buffer else 0.0
 
@@ -258,8 +271,6 @@ class DataProcessor(threading.Thread):
                         
                         if self.consecutive_failed_reps >= 3:
                             logging.info(f"Set ended: 3 consecutive failed reps.")
-                            # --- MODIFICATION ---
-                            # This now sends the "3 failed reps" reason
                             self.end_set(reason="3 failed reps")
                             return
 
@@ -267,12 +278,22 @@ class DataProcessor(threading.Thread):
                 self.plot_queue.put(data_packet)
                 
                 if self.csv_writer:
-                    csv_row = [self.current_set, f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{smoothed_velocity:.4f}", f"{x:.4f}", f"{y:.4f}"]
+                    # This is the row that is written for every data point
+                    csv_row = [
+                        self.current_set, 
+                        f"{current_time:.4f}", 
+                        self.rep_count, 
+                        f"{smoothed_angle:.4f}", 
+                        f"{smoothed_velocity:.4f}", 
+                        f"{x:.4f}", 
+                        f"{y:.4f}"
+                    ]
                     self.csv_writer.writerow(csv_row)
 
         except (ValueError, TypeError):
             logging.warning(f"Could not parse data line: '{line}'")
             
+    # --- MODIFIED ---
     def setup_csv(self):
         try:
             sessions_dir = config.get('Paths', 'sessions_base_dir')
@@ -284,7 +305,15 @@ class DataProcessor(threading.Thread):
             )
             self.csv_file = open(self.log_filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
+            
+            # --- MODIFICATION ---
+            # Write the metadata row as the FIRST line in the file
+            self.csv_writer.writerow(['Max', f"{self.calibrated_max_angle:.4f}"])
+            
+            # Write the data headers as the SECOND line
             self.csv_writer.writerow(['Set', 'Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y'])
+            # --- END MODIFICATION ---
+            
             logging.info(f"Logging data to {self.log_filename}")
         except IOError as e:
             logging.error(f"Error opening CSV file: {e}")
@@ -377,7 +406,7 @@ class RestTimerWindow(tk.Toplevel):
             self.after_cancel(self.countdown_job)
         self.destroy()
 
-# --- RoutineWindow Class (Modified) ---
+# --- RoutineWindow Class (Unchanged) ---
 class RoutineWindow(tk.Toplevel):
     def __init__(self, parent, username, sensor, initial_angle=None, max_angle=None):
         super().__init__(parent)
@@ -571,7 +600,6 @@ class RoutineWindow(tk.Toplevel):
         logging.debug(f"Showing message: '{title}'")
         messagebox.showinfo(title, message, parent=self)
 
-    # --- MODIFIED (Unchanged from original) ---
     def handle_queue_command(self, command):
         """Handles string-based commands from the plot_queue."""
         logging.debug(f"GUI received command: {command}")
@@ -587,7 +615,6 @@ class RoutineWindow(tk.Toplevel):
             self.rep_count_var.set("0")
             
         elif command.startswith("SET_END:"):
-            # --- MODIFICATION: Parse the new, richer command string ---
             try:
                 parts = command.split(':')
                 set_num_finished = int(parts[1])
@@ -613,20 +640,17 @@ class RoutineWindow(tk.Toplevel):
                     f"Great job! All {self.total_sets} sets are finished."
                 ))
             else:
-                # --- This is the "inter-set" period ---
-                self.current_set = next_set # Already incremented in processor
+                self.current_set = next_set
                 self.current_set_var.set(f"Set: {self.current_set}")
                 self.start_stop_button.config(text=f"Start Set {self.current_set}")
 
-                # --- NEW TIMER LOGIC ---
                 timer_duration = 0
                 if reason_for_end == "3 failed reps":
-                    # Note: Using non-overlapping ranges for clarity
                     if 1 <= reps_completed <= 5:
                         timer_duration = 300 # 5 minutes
                     elif 6 <= reps_completed <= 12:
                         timer_duration = 180 # 3 minutes
-                    elif 13 <= reps_completed <= 14: # 12 is in prev, 15+ is next
+                    elif 13 <= reps_completed <= 14:
                         timer_duration = 90 # 90 seconds
                     elif reps_completed >= 15:
                         timer_duration = 0 # No timer
@@ -634,11 +658,8 @@ class RoutineWindow(tk.Toplevel):
                     logging.info(f"Set failed. Reps: {reps_completed}. Timer: {timer_duration}s.")
                 
                 if timer_duration > 0:
-                    # --- Show the MODAL timer window ---
-                    # This window will block execution until it's closed
                     RestTimerWindow(self, timer_duration)
                 else:
-                    # --- Show the regular non-blocking message ---
                     self.after(10, lambda set_num=set_num_finished, ns=next_set: self.show_blocking_message(
                         f"Set {set_num} Complete!", 
                         f"Get ready for set {ns}."
@@ -729,3 +750,88 @@ class RoutineWindow(tk.Toplevel):
         else:
             logging.info("User cancelled the exit operation. Returning to session.")
             pass
+
+# --- Main execution ---
+# This part is for testing. You would typically import and
+# call RoutineWindow from your main application's GUI.
+if __name__ == "__main__":
+    # --- Create a dummy config for testing ---
+    import configparser
+    
+    # Check if config_manager.py exists, if not, create a dummy
+    try:
+        from config_manager import config
+    except ImportError:
+        print("Creating dummy config_manager.py and config.ini")
+        
+        with open("config_manager.py", "w") as f:
+            f.write("import configparser\n")
+            f.write("config = configparser.ConfigParser()\n")
+            f.write("config.read('config.ini')\n")
+        
+        with open("config.ini", "w") as f:
+            f.write("[RepCounter]\n")
+            f.write("smoothing_window = 10\n")
+            f.write("velocity_smoothing_window = 5\n")
+            f.write("velocity_neg_threshold = -20.0\n")
+            f.write("velocity_pos_threshold = 20.0\n")
+            f.write("velocity_zero_threshold = 10.0\n")
+            f.write("max_angle_tolerance_percent = 90.0\n")
+            f.write("[Paths]\n")
+            f.write("sessions_base_dir = ./sessions\n")
+            f.write("[Logging]\n")
+            f.write("level = INFO\n")
+            f.write("[Serial]\n")
+            f.write("port = \n")
+            f.write("baudrate = 115200\n")
+            f.write("[Plotting]\n")
+            f.write("plot_history_length = 100\n")
+            f.write("time_window_seconds = 10\n")
+            f.write("cop_x_limit = 10\n")
+            f.write("cop_y_limit = 10\n")
+            f.write("angle_y_min = -10\n")
+            f.write("angle_y_max = 100\n")
+
+        from config_manager import config
+        config.read('config.ini')
+
+    # --- Create a dummy BNO055 sensor for testing ---
+    # This avoids the need for adafruit_bno055
+    class DummySensor:
+        @property
+        def quaternion(self):
+            # Simulate some noisy data
+            noise = (time.time() % 2) * 0.01 - 0.005
+            # Simulate a 1-second sine wave
+            sim_angle = 45 * math.sin(time.time() * math.pi * 2) + 45
+            # Convert angle to quaternion W component
+            rad = math.radians(sim_angle / 2)
+            return [math.cos(rad) + noise, 0, 0, 0]
+
+    # --- Start the app ---
+    root = tk.Tk()
+    root.withdraw() # Hide the root window
+    
+    # Create a dummy sensor object
+    # If you have the real sensor, initialize it here
+    dummy_sensor = DummySensor()
+    # In a real app, you would pass the actual BNO055 sensor object
+    
+    # --- Parameters to pass to RoutineWindow ---
+    # These would come from your login and calibration windows
+    TEST_USERNAME = "test_user"
+    TEST_INITIAL_ANGLE = 175.0 # Dummy initial angle (absolute)
+    TEST_MAX_ANGLE = 85.0     # Dummy calibrated max angle (relative)
+    
+    try:
+        app = RoutineWindow(
+            parent=root, 
+            username=TEST_USERNAME, 
+            sensor=dummy_sensor, 
+            initial_angle=TEST_INITIAL_ANGLE, 
+            max_angle=TEST_MAX_ANGLE
+        )
+        root.mainloop()
+    except Exception as e:
+        logging.critical(f"Failed to start application: {e}", exc_info=True)
+        root.destroy()

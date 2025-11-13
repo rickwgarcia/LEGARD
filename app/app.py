@@ -9,6 +9,8 @@ import logging
 from routine_window import RoutineWindow
 from calibration_window import CalibrationWindow
 from config_manager import config
+from history_tab import HistoryTab  # type: ignore
+
 
 # Sensor-related imports
 try:
@@ -210,7 +212,14 @@ class Dashboard(tk.Tk):
         self.routine_window.focus()
 
     def create_history_tab(self, parent_frame):
-        ttk.Label(parent_frame, text="Workout history will be displayed here.", font=("Helvetica", 14), foreground="gray").pack(expand=True)
+        """
+        Creates the History tab by instantiating the HistoryTab class.
+        """
+        # Create an instance of our new HistoryTab class
+        history_tab = HistoryTab(parent_frame, self.username)
+        
+        # Pack it into the parent_frame
+        history_tab.pack(fill="both", expand=True)
 
     def create_analytics_tab(self, parent_frame):
         ttk.Label(parent_frame, text="Performance analytics will be shown here.", font=("Helvetica", 14), foreground="gray").pack(expand=True)
