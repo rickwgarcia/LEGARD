@@ -20,7 +20,7 @@ import logging
 # Import the config object
 from config_manager import config
 
-# --- SerialThread Class ---
+# --- SerialThread Class (Unchanged) ---
 class SerialThread(threading.Thread):
     def __init__(self, port, baudrate, data_queue):
         super().__init__(daemon=True)
@@ -66,7 +66,7 @@ class SerialThread(threading.Thread):
             except serial.SerialException:
                 logging.error("Failed to send data; device may be disconnected.")
 
-# --- DataProcessor Class ---
+# --- DataProcessor Class (Modified) ---
 class DataProcessor(threading.Thread):
     def __init__(self, sensor, data_queue, plot_queue, username, initial_angle=None, max_angle=None):
         super().__init__(daemon=True)
@@ -88,7 +88,6 @@ class DataProcessor(threading.Thread):
         self.last_time = 0.0
         self.last_smoothed_angle = 0.0
         self.consecutive_failed_reps = 0
-        # self.time_at_zero_velocity_start = None  <-- REMOVED
         self.max_angle_for_current_rep = 0.0
         
         self.SMOOTHING_WINDOW = config.getint('RepCounter', 'smoothing_window')
@@ -107,7 +106,6 @@ class DataProcessor(threading.Thread):
             logging.warning("Calibrated max angle is <= 0. Set failure logic will be disabled.")
             self.calibrated_max_angle = 9999.0 # Effectively disable check
             
-        # self.ZERO_VELOCITY_TIMEOUT = config.getfloat('RepCounter', 'zero_velocity_timeout', fallback=4.0)  <-- REMOVED
         self.MAX_ANGLE_TOLERANCE_PERCENT = config.getfloat('RepCounter', 'max_angle_tolerance_percent', fallback=90.0)
         self.target_angle_threshold = self.calibrated_max_angle * (self.MAX_ANGLE_TOLERANCE_PERCENT / 100.0)
         
@@ -121,17 +119,11 @@ class DataProcessor(threading.Thread):
         while self.running:
             try:
                 line = self.data_queue.get(timeout=1)
-                
-                # --- MODIFICATION: Always process the line to keep buffers full ---
                 try:
                     self.parse_and_process(line)
                 except Exception as e:
                     logging.error(f"Error in parse_and_process: {e}", exc_info=True)
-                    
             except queue.Empty:
-                # --- MODIFICATION ---
-                # The check for zero velocity timeout when the queue was empty
-                # has been removed. We just continue and wait for more data.
                 continue
             except Exception as e:
                 logging.critical(f"DataProcessor main loop error: {e}", exc_info=True)
@@ -146,12 +138,7 @@ class DataProcessor(threading.Thread):
         self.rep_state = 0
         self.start_time = time.monotonic()
         self.last_time = self.start_time
-        # self.last_smoothed_angle = 0.0  <- Keep last known angle
-        # --- Note: We no longer clear buffers, so they are "warm" ---
-        # self.angle_buffer.clear()
-        # self.velocity_buffer.clear()
         self.consecutive_failed_reps = 0
-        # self.time_at_zero_velocity_start = None  <-- REMOVED
         self.max_angle_for_current_rep = 0.0
         self.set_active = True
         
@@ -165,12 +152,13 @@ class DataProcessor(threading.Thread):
         logging.info(f"--- Ending Set {self.current_set} ({reason}) ---")
         self.set_active = False
         
-        self.plot_queue.put(f"SET_END:{self.current_set}")
+        # --- MODIFICATION ---
+        # Send the reason and final rep count to the GUI
+        rep_count_at_stop = self.rep_count
+        self.plot_queue.put(f"SET_END:{self.current_set}:{reason}:{rep_count_at_stop}")
+        # ---
+        
         self.current_set += 1
-
-    # --- REMOVED ---
-    # The entire `check_zero_velocity_timeout` method has been deleted.
-    # ---
 
     def parse_and_process(self, line):
         cop_match = self.cop_pattern.match(line)
@@ -183,7 +171,6 @@ class DataProcessor(threading.Thread):
                 logging.warning(f"CoP outlier detected ({x:.1f}, {y:.1f}). Skipping point.")
                 return
             
-            # --- This block now runs regardless of set_active ---
             relative_angle = self.last_known_angle
             if self.sensor:
                 try:
@@ -200,7 +187,7 @@ class DataProcessor(threading.Thread):
                         
                         if angle_candidate >= 0 and abs(angle_candidate - self.last_known_angle) < 180:
                             relative_angle = angle_candidate
-                            self.last_known_angle = relative_angle # <-- Always updating
+                            self.last_known_angle = relative_angle
                         else:
                             logging.warning(f"Angle outlier detected ({angle_candidate:.1f}). Using last known value.")
                     else:
@@ -208,58 +195,41 @@ class DataProcessor(threading.Thread):
                 except (OSError, RuntimeError):
                     logging.warning("BNO055 read error. Using last known angle.")
 
-            self.angle_buffer.append(relative_angle) # <-- Always updating
+            self.angle_buffer.append(relative_angle)
             if len(self.angle_buffer) < self.SMOOTHING_WINDOW:
                 return
             
             smoothed_angle = sum(self.angle_buffer) / self.SMOOTHING_WINDOW
-            
-            # current_time will be relative to the start of the *current set*
             current_time = time.monotonic() - self.start_time 
-
             delta_time = current_time - self.last_time
+
             if delta_time > 0:
                 delta_angle = smoothed_angle - self.last_smoothed_angle
                 raw_velocity = delta_angle / delta_time
-                self.velocity_buffer.append(raw_velocity) # <-- Always updating
+                self.velocity_buffer.append(raw_velocity)
             
-            # Use maxlen to avoid divide by zero if buffer is empty
             smoothed_velocity = sum(self.velocity_buffer) / len(self.velocity_buffer) if self.velocity_buffer else 0.0
 
             self.last_time = current_time
-            self.last_smoothed_angle = smoothed_angle # <-- Always updating
-            
+            self.last_smoothed_angle = smoothed_angle
             is_moving = abs(smoothed_velocity) >= self.VELOCITY_ZERO_THRESHOLD
             
-            # --- MODIFICATION: All set logic is now inside this block ---
             if self.set_active:
-                
-                # --- REMOVED ---
-                # --- Set Ending Logic Check 1: Zero Velocity Timeout ---
-                # self.check_zero_velocity_timeout(is_moving)
-                # if not self.set_active: return # Set was ended, stop processing
-                # ---
-
-                # --- Rep State Machine ---
                 if self.rep_state == 0: # IDLE
                     if smoothed_velocity > self.VELOCITY_POS_THRESHOLD:
                         self.rep_state = 1
                     elif smoothed_velocity < self.VELOCITY_NEG_THRESHOLD:
                         self.rep_state = 2
-
                 elif self.rep_state == 1: # UP
                     self.max_angle_for_current_rep = max(self.max_angle_for_current_rep, smoothed_angle)
                     if smoothed_velocity < self.VELOCITY_NEG_THRESHOLD:
                         self.rep_state = 3
-
                 elif self.rep_state == 2: # DOWN
                     self.max_angle_for_current_rep = max(self.max_angle_for_current_rep, smoothed_angle)
                     if smoothed_velocity > self.VELOCITY_POS_THRESHOLD:
                         self.rep_state = 3
-
-                elif self.rep_state == 3: # REVERSAL (Waiting to complete rep)
+                elif self.rep_state == 3: # REVERSAL
                     if not is_moving:
-                        # --- Check success/failure at the END of the rep ---
                         if self.max_angle_for_current_rep < self.target_angle_threshold:
                             self.consecutive_failed_reps += 1
                             logging.warning(f"Failed rep #{self.consecutive_failed_reps} (Peak: {self.max_angle_for_current_rep:.1f}° < Target: {self.target_angle_threshold:.1f}°)")
@@ -268,27 +238,24 @@ class DataProcessor(threading.Thread):
                                 logging.info(f"Successful rep. Resetting failure count.")
                             self.consecutive_failed_reps = 0 
                         
-                        # Now count the rep and reset for the next one
                         self.rep_count += 1
                         logging.info(f"Rep #{self.rep_count} counted! State -> 0 (Idle)")
                         self.rep_state = 0
                         self.max_angle_for_current_rep = 0.0
                         
-                        # --- Check for set failure AFTER the rep is counted ---
                         if self.consecutive_failed_reps >= 3:
                             logging.info(f"Set ended: 3 consecutive failed reps.")
+                            # --- MODIFICATION ---
+                            # This now sends the "3 failed reps" reason
                             self.end_set(reason="3 failed reps")
                             return
 
-                # --- Data Packet & CSV Logging (Only send if set is active) ---
                 data_packet = (current_time, smoothed_angle, smoothed_velocity, x, y, self.rep_count, self.current_set)
                 self.plot_queue.put(data_packet)
                 
                 if self.csv_writer:
-                    # 'Set' column is now at the beginning
                     csv_row = [self.current_set, f"{current_time:.4f}", self.rep_count, f"{smoothed_angle:.4f}", f"{smoothed_velocity:.4f}", f"{x:.4f}", f"{y:.4f}"]
                     self.csv_writer.writerow(csv_row)
-            # --- End of self.set_active block ---
 
         except (ValueError, TypeError):
             logging.warning(f"Could not parse data line: '{line}'")
@@ -298,15 +265,12 @@ class DataProcessor(threading.Thread):
             sessions_dir = config.get('Paths', 'sessions_base_dir')
             user_session_path = os.path.join(sessions_dir, self.username)
             os.makedirs(user_session_path, exist_ok=True)
-            
             self.log_filename = os.path.join(
                 user_session_path, 
                 f"datalog_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             )
-
             self.csv_file = open(self.log_filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
-            # 'Set' column is now at the beginning
             self.csv_writer.writerow(['Set', 'Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y'])
             logging.info(f"Logging data to {self.log_filename}")
         except IOError as e:
@@ -318,7 +282,6 @@ class DataProcessor(threading.Thread):
             logging.info(f"Closing log file stream for: {self.log_filename}")
             self.csv_file.close()
             self.csv_file = None
-
             if self.should_save:
                 logging.info(f"Session data SAVED to {self.log_filename}")
             else:
@@ -335,8 +298,73 @@ class DataProcessor(threading.Thread):
     def stop(self):
         self.running = False
 
+# --- NEW CLASS: RestTimerWindow ---
+class RestTimerWindow(tk.Toplevel):
+    def __init__(self, parent, total_seconds):
+        super().__init__(parent)
+        self.title("Rest Timer")
+        self.attributes('-fullscreen', True)
+        
+        self.remaining = total_seconds
+        
+        # --- UI ---
+        main_frame = ttk.Frame(self, padding=50)
+        main_frame.pack(expand=True, fill='both')
 
-# --- RoutineWindow Class ---
+        # Configure grid to center content
+        main_frame.rowconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=2) # Timer bigger
+        main_frame.rowconfigure(2, weight=1) # Skip button
+        main_frame.columnconfigure(0, weight=1)
+        
+        style = ttk.Style(self)
+        style.configure('Timer.TLabel', font=('Helvetica', 150, 'bold'), anchor='center')
+        style.configure('Rest.TLabel', font=('Helvetica', 40, 'bold'), anchor='center')
+        style.configure('Skip.TButton', font=('Helvetica', 20, 'bold'), padding=20)
+
+        ttk.Label(main_frame, text="REST TIME", style='Rest.TLabel').grid(row=0, column=0, sticky='s')
+
+        self.timer_var = tk.StringVar()
+        self.timer_label = ttk.Label(main_frame, textvariable=self.timer_var, style='Timer.TLabel')
+        self.timer_label.grid(row=1, column=0, sticky='nsew')
+        
+        self.skip_button = ttk.Button(
+            main_frame, 
+            text="Skip Rest", 
+            command=self.destroy, # 'destroy' will stop the timer
+            style='Skip.TButton'
+        )
+        self.skip_button.grid(row=2, column=0, sticky='n', pady=20)
+        
+        # --- Logic ---
+        self.protocol("WM_DELETE_WINDOW", self.skip_and_close) # Handle window close
+        self.bind('<Escape>', lambda e: self.skip_and_close())
+        
+        self.countdown_job = None # To store the .after() job ID
+        self.update_timer() # Start the countdown
+        
+        # --- Make it modal (blocks other windows) ---
+        self.grab_set()
+        self.wait_window()
+
+    def update_timer(self):
+        """Recursively updates the timer label every second."""
+        mins, secs = divmod(self.remaining, 60)
+        self.timer_var.set(f"{mins:02d}:{secs:02d}")
+        
+        if self.remaining > 0:
+            self.remaining -= 1
+            self.countdown_job = self.after(1000, self.update_timer)
+        else:
+            self.destroy() # Time's up
+
+    def skip_and_close(self):
+        """Ensures the .after() loop is cancelled before closing."""
+        if self.countdown_job:
+            self.after_cancel(self.countdown_job)
+        self.destroy()
+
+# --- RoutineWindow Class (Modified) ---
 class RoutineWindow(tk.Toplevel):
     def __init__(self, parent, username, sensor, initial_angle=None, max_angle=None):
         super().__init__(parent)
@@ -366,9 +394,6 @@ class RoutineWindow(tk.Toplevel):
         self.angle_history = deque()
         
         self.rep_count_var = tk.StringVar(value="0")
-        
-        # --- MODIFIED LINE ---
-        # Removed " / {self.total_sets}"
         self.current_set_var = tk.StringVar(value=f"Set: {self.current_set}")
 
         self.setup_ui()
@@ -415,12 +440,10 @@ class RoutineWindow(tk.Toplevel):
         control_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
         style = ttk.Style(self)
-        # --- MODIFIED LINES (Font sizes) ---
         style.configure('Large.TButton', font=('Helvetica', 16, 'bold'), padding=15)
         style.configure('Rep.TLabel', font=('Helvetica', 12, 'bold'))
         style.configure('RepCount.TLabel', font=('Helvetica', 35, 'bold'))
         style.configure('Set.TLabel', font=('Helvetica', 20, 'bold'), foreground='RoyalBlue')
-
 
         self.start_stop_button = ttk.Button(
             control_frame,
@@ -501,7 +524,6 @@ class RoutineWindow(tk.Toplevel):
                 
             self.send_command('c')
             self.data_processor_thread.start_set() 
-            
             self.start_stop_button.config(text=f"Stop Set {self.current_set}")
             self.is_streaming = True
             logging.info(f"--> Set {self.current_set} stream STARTED.")
@@ -524,9 +546,9 @@ class RoutineWindow(tk.Toplevel):
     def show_blocking_message(self, title, message):
         """Helper to show a messagebox outside the animation loop."""
         logging.debug(f"Showing message: '{title}'")
-        # --- THIS IS THE FIX ---
         messagebox.showinfo(title, message, parent=self)
 
+    # --- MODIFIED ---
     def handle_queue_command(self, command):
         """Handles string-based commands from the plot_queue."""
         logging.debug(f"GUI received command: {command}")
@@ -534,10 +556,7 @@ class RoutineWindow(tk.Toplevel):
         if command.startswith("SET_START:"):
             set_num_started = int(command.split(":")[1])
             self.current_set = set_num_started
-            
-            # --- MODIFIED LINE ---
             self.current_set_var.set(f"Set: {self.current_set}")
-            
             self.time_history.clear()
             self.angle_history.clear()
             self.x_cop_history.clear()
@@ -545,7 +564,17 @@ class RoutineWindow(tk.Toplevel):
             self.rep_count_var.set("0")
             
         elif command.startswith("SET_END:"):
-            set_num_finished = int(command.split(":")[1])
+            # --- MODIFICATION: Parse the new, richer command string ---
+            try:
+                parts = command.split(':')
+                set_num_finished = int(parts[1])
+                reason_for_end = parts[2]
+                reps_completed = int(parts[3])
+            except Exception as e:
+                logging.error(f"Failed to parse SET_END command: {command}. Error: {e}")
+                set_num_finished = int(command.split(":")[1])
+                reason_for_end = "Unknown"
+                reps_completed = 0
             
             if self.is_streaming:
                 self.send_command('s')
@@ -558,25 +587,45 @@ class RoutineWindow(tk.Toplevel):
                 self.current_set_var.set("Complete!")
                 self.after(10, lambda: self.show_blocking_message(
                     "Workout Complete!", 
-                    "Great job! All 3 sets are finished."
+                    f"Great job! All {self.total_sets} sets are finished."
                 ))
             else:
-                self.current_set = next_set
-                
-                # --- MODIFIED LINE ---
+                # --- This is the "inter-set" period ---
+                self.current_set = next_set # Already incremented in processor
                 self.current_set_var.set(f"Set: {self.current_set}")
                 self.start_stop_button.config(text=f"Start Set {self.current_set}")
-                self.after(10, lambda set_num=set_num_finished, ns=next_set: self.show_blocking_message(
-                    f"Set {set_num} Complete!", 
-                    f"Get ready for set {ns}."
-                ))
+
+                # --- NEW TIMER LOGIC ---
+                timer_duration = 0
+                if reason_for_end == "3 failed reps":
+                    # Note: Using non-overlapping ranges for clarity
+                    if 1 <= reps_completed <= 5:
+                        timer_duration = 300 # 5 minutes
+                    elif 6 <= reps_completed <= 12:
+                        timer_duration = 180 # 3 minutes
+                    elif 13 <= reps_completed <= 14: # 12 is in prev, 15+ is next
+                        timer_duration = 90 # 90 seconds
+                    elif reps_completed >= 15:
+                        timer_duration = 0 # No timer
+                    
+                    logging.info(f"Set failed. Reps: {reps_completed}. Timer: {timer_duration}s.")
+                
+                if timer_duration > 0:
+                    # --- Show the MODAL timer window ---
+                    # This window will block execution until it's closed
+                    RestTimerWindow(self, timer_duration)
+                else:
+                    # --- Show the regular non-blocking message ---
+                    self.after(10, lambda set_num=set_num_finished, ns=next_set: self.show_blocking_message(
+                        f"Set {set_num} Complete!", 
+                        f"Get ready for set {ns}."
+                    ))
             
-            self.rep_count_var.set("0")
+            self.rep_count_var.set("0") # Reset rep count for next set
 
     def animate_plot(self, frame):
         processed_in_frame = 0
         latest_rep_count = self.rep_count_var.get()
-        latest_set_num = self.current_set
 
         while processed_in_frame < 20:
             try:
@@ -594,7 +643,6 @@ class RoutineWindow(tk.Toplevel):
                 self.y_cop_history.append(y)
                 
                 latest_rep_count = rep_count
-                latest_set_num = set_num
                 processed_in_frame += 1
 
             except queue.Empty:
