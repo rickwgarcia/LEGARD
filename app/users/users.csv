@@ -1,3 +1,2 @@
 username,hashed_pin,first_name,last_name,gender
-user,ff5ba3a53da7e5741ef5704820cace0d08bd1e94101cc2f0f673fd7a2ddbbc14,john ,doe,Male
-admin,ff5ba3a53da7e5741ef5704820cace0d08bd1e94101cc2f0f673fd7a2ddbbc14,joe,smith,male
+user,ff5ba3a53da7e5741ef5704820cace0d08bd1e94101cc2f0f673fd7a2ddbbc14,John ,Dow,Male
