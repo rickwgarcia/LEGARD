@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 class HistoryTab(ttk.Frame):
     """
     A ttk.Frame that contains the complete UI and logic for the History tab,
-    featuring plots for CoP and Angle with interactive linked cursors.
+    featuring plots for CoP and Angle with interactive 'scrubbing' cursors.
     """
     def __init__(self, parent, username, **kwargs):
         super().__init__(parent, **kwargs)
@@ -27,14 +27,16 @@ class HistoryTab(ttk.Frame):
         self.calibrated_max_angle = None
         self.saved_target_angle = None
         
-        # --- NEW: Variables to hold plotting data for interactivity ---
+        # --- Variables to hold plotting data for interactivity ---
         self.times = []
+        self.angles = []    # Store angles for the Y-axis cursor
         self.x_coords = []
         self.y_coords = []
 
-        # --- NEW: References to the cursor visual elements ---
-        self.cursor_line = None # The vertical line on the Angle plot
-        self.cursor_dot = None  # The dot on the CoP plot
+        # --- References to the cursor visual elements ---
+        self.cursor_angle_dot = None # The dot on the Angle plot
+        self.cursor_cop_dot = None   # The dot on the CoP plot
+        self.is_dragging = False     # Track if mouse button is held down
 
         self.setup_widgets()
         self.load_session_files()
@@ -73,8 +75,10 @@ class HistoryTab(ttk.Frame):
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # --- NEW: Connect the click event to the handler ---
-        self.canvas.mpl_connect('button_press_event', self.on_plot_click)
+        # --- Connect Events for Dragging/Scrubbing ---
+        self.canvas.mpl_connect('button_press_event', self.on_click)
+        self.canvas.mpl_connect('motion_notify_event', self.on_drag)
+        self.canvas.mpl_connect('button_release_event', self.on_release)
 
         self.reset_plots()
 
@@ -93,9 +97,10 @@ class HistoryTab(ttk.Frame):
         self.ax_cop.clear()
         self.ax_angle.clear()
 
-        # --- NEW: Reset cursor references ---
-        self.cursor_line = None
-        self.cursor_dot = None
+        # Reset cursor references
+        self.cursor_angle_dot = None
+        self.cursor_cop_dot = None
+        self.is_dragging = False
 
         cop_x_lim = config.getfloat('Plotting', 'cop_x_limit', fallback=10)
         cop_y_lim = config.getfloat('Plotting', 'cop_y_limit', fallback=10)
@@ -121,7 +126,6 @@ class HistoryTab(ttk.Frame):
         self.canvas.draw()
 
     def load_session_files(self):
-        # (No changes to this method)
         self.session_files = {}
         try:
             user_sessions_dir = os.path.join(config.get('Paths', 'sessions_base_dir'), self.username)
@@ -156,7 +160,6 @@ class HistoryTab(ttk.Frame):
             self.metadata_label_var.set("Error loading sessions.")
 
     def on_session_selected(self, event=None):
-        # (No changes to this method logic, just ensuring it calls plot_data)
         selected_display_name = self.session_combo.get()
         file_path = self.session_files.get(selected_display_name)
         if not file_path:
@@ -231,9 +234,10 @@ class HistoryTab(ttk.Frame):
         self.ax_cop.clear()
         self.ax_angle.clear()
 
-        # --- NEW: Reset cursors when plotting new data ---
-        self.cursor_line = None
-        self.cursor_dot = None
+        # Reset cursors when plotting new data
+        self.cursor_angle_dot = None
+        self.cursor_cop_dot = None
+        self.is_dragging = False
 
         if not self.current_session_data or not self.current_session_headers:
             self.reset_plots("No data to display.")
@@ -250,21 +254,20 @@ class HistoryTab(ttk.Frame):
             self.reset_plots(f"Error: Missing column {e}")
             return
 
-        # --- UPDATED: Clear previous instance data ---
+        # Clear previous instance data
         self.times = []
+        self.angles = []
         self.x_coords = []
         self.y_coords = []
-        # We can keep angles local if we don't need to look them up on click
-        angles = [] 
 
         for row in self.current_session_data:
             if selected_set == "All Sets" or row[set_idx] == selected_set:
                 try:
-                    # --- UPDATED: Populate instance variables ---
+                    # Populate instance variables
                     self.times.append(float(row[time_idx]))
+                    self.angles.append(float(row[angle_idx]))
                     self.x_coords.append(float(row[x_idx]))
                     self.y_coords.append(float(row[y_idx]))
-                    angles.append(float(row[angle_idx]))
                 except (ValueError, IndexError):
                     continue
         
@@ -275,7 +278,6 @@ class HistoryTab(ttk.Frame):
         cop_x_lim = config.getfloat('Plotting', 'cop_x_limit', fallback=10)
         cop_y_lim = config.getfloat('Plotting', 'cop_y_limit', fallback=10)
         
-        # Use self.x_coords / self.y_coords here
         self.ax_cop.plot(self.x_coords, self.y_coords, 'b-', alpha=0.5, lw=2)
         self.ax_cop.set_xlim(-cop_x_lim, cop_x_lim)
         self.ax_cop.set_ylim(-cop_y_lim, cop_y_lim)
@@ -288,8 +290,7 @@ class HistoryTab(ttk.Frame):
         angle_y_min = config.getfloat('Plotting', 'angle_y_min', fallback=-10)
         angle_y_max = config.getfloat('Plotting', 'angle_y_max', fallback=100)
         
-        # Use self.times here
-        self.ax_angle.plot(self.times, angles, 'g-')
+        self.ax_angle.plot(self.times, self.angles, 'g-')
         self.ax_angle.set_title("Relative Angle")
         self.ax_angle.set_xlabel("Time (s)")
         self.ax_angle.set_ylabel("Angle (degrees)")
@@ -312,49 +313,50 @@ class HistoryTab(ttk.Frame):
 
         self.canvas.draw()
 
-    # --- NEW: Event Handler Function ---
-    def on_plot_click(self, event):
-        """
-        Handles mouse clicks on the plots.
-        If the Angle plot is clicked:
-          1. Find the closest time index.
-          2. Draw a vertical line on the Angle plot.
-          3. Draw a dot on the CoP plot corresponding to that index.
-        """
-        # 1. Check if the click happened inside the Angle axes and if we have data
-        if event.inaxes != self.ax_angle or not self.times:
+    # --- INTERACTIVE CURSOR LOGIC ---
+
+    def update_cursors(self, x_input):
+        """Helper: Updates the positions of both dots based on time x_input."""
+        if not self.times:
             return
 
-        # 2. Get the time (x-value) from the click
-        clicked_time = event.xdata
+        # 1. Find nearest index
+        # This creates a generator of valid indices and picks the one with min time difference
+        idx = min(range(len(self.times)), key=lambda i: abs(self.times[i] - x_input))
 
-        # 3. Find the index in self.times closest to clicked_time
-        # This uses min with a key function to find the smallest difference
-        closest_index = min(
-            range(len(self.times)), 
-            key=lambda i: abs(self.times[i] - clicked_time)
-        )
+        # 2. Get values at that index
+        t = self.times[idx]
+        ang = self.angles[idx]
+        cx = self.x_coords[idx]
+        cy = self.y_coords[idx]
 
-        # 4. Retrieve the data at that index
-        actual_time = self.times[closest_index]
-        cop_x = self.x_coords[closest_index]
-        cop_y = self.y_coords[closest_index]
-
-        # 5. Update the Vertical Line (Angle Plot)
-        if self.cursor_line:
-            # If line exists, just move it (faster than removing and replotting)
-            self.cursor_line.set_xdata([actual_time, actual_time])
+        # 3. Update Angle Graph Dot (Red Dot)
+        if self.cursor_angle_dot:
+            self.cursor_angle_dot.set_data([t], [ang])
         else:
-            # Create the line if it doesn't exist
-            self.cursor_line = self.ax_angle.axvline(x=actual_time, color='red', alpha=0.8, lw=2)
+            # zorder=5 ensures the dot sits ON TOP of the green line
+            self.cursor_angle_dot, = self.ax_angle.plot(t, ang, 'ro', markersize=6, zorder=5)
 
-        # 6. Update the Dot (CoP Plot)
-        if self.cursor_dot:
-            # If dot exists, update position
-            self.cursor_dot.set_data([cop_x], [cop_y])
+        # 4. Update CoP Graph Dot (Red Dot)
+        if self.cursor_cop_dot:
+            self.cursor_cop_dot.set_data([cx], [cy])
         else:
-            # Create the dot (plot returns a list of lines, we take the first one)
-            self.cursor_dot, = self.ax_cop.plot(cop_x, cop_y, 'ro', markersize=8, zorder=5)
+            self.cursor_cop_dot, = self.ax_cop.plot(cx, cy, 'ro', markersize=8, zorder=5)
 
-        # 7. Redraw the canvas to show changes
-        self.canvas.draw()
+        # 5. Efficient redraw
+        self.canvas.draw_idle()
+
+    def on_click(self, event):
+        """Start dragging if click is on the Angle graph."""
+        if event.inaxes == self.ax_angle:
+            self.is_dragging = True
+            self.update_cursors(event.xdata)
+
+    def on_drag(self, event):
+        """Update position if dragging."""
+        if self.is_dragging and event.inaxes == self.ax_angle:
+            self.update_cursors(event.xdata)
+
+    def on_release(self, event):
+        """Stop dragging."""
+        self.is_dragging = False
