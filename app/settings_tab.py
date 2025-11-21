@@ -1,72 +1,273 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+import serial.tools.list_ports
+import os
+import sys
+import platform
+import subprocess
 
-class SettingsTab(tk.Frame):
+# Import the shared config object
+from config_manager import config
+
+class SettingsTab(ttk.Frame):
     def __init__(self, parent, username):
-        """
-        Initialize the Settings Tab.
-        
-        :param parent: The parent widget (usually a frame or window).
-        :param username: The username string passed from the main application.
-        """
         super().__init__(parent)
         self.username = username
+        self.pack(fill="both", expand=True, padx=20, pady=20)
         
-        # Configuration for the layout
-        self.configure(bg="#f0f0f0") # Light gray background
+        # Dictionary to hold the Tkinter variables for easy retrieval
+        self.vars = {}
         
-        # Create the UI elements
-        self.create_widgets()
-
-    def create_widgets(self):
-        """Creates and packs the labels and buttons."""
+        # List to store help text for the Info Window
+        self.help_info = []
         
-        # 1. Header / Welcome Label
-        header_label = tk.Label(
-            self, 
-            text=f"Settings for {self.username}", 
-            font=("Arial", 16, "bold"),
-            bg="#f0f0f0"
-        )
-        header_label.pack(pady=20)
+        self.create_layout()
+        self.load_current_values()
 
-        # 2. Button 1: Change Password
-        btn_password = ttk.Button(
-            self, 
-            text="Change Password", 
-            command=self.change_password_action
-        )
-        btn_password.pack(pady=10, ipadx=10, ipady=5)
+    def create_layout(self):
+        # ================= TOP HEADER =================
+        header_frame = ttk.Frame(self)
+        header_frame.pack(side="top", fill="x", pady=(0, 20))
 
-        # 3. Button 2: Toggle Theme
-        btn_theme = ttk.Button(
-            self, 
-            text="Toggle Dark Mode", 
-            command=self.toggle_theme_action
-        )
-        btn_theme.pack(pady=10, ipadx=10, ipady=5)
+        # --- Info Button (Top Left) ---
+        info_btn = ttk.Button(header_frame, text="ℹ️ Information", command=self.show_info_window)
+        info_btn.pack(side="left", padx=5)
 
-        # 4. Button 3: Logout
-        btn_logout = ttk.Button(
-            self, 
-            text="Logout", 
-            command=self.logout_action
-        )
-        btn_logout.pack(pady=10, ipadx=10, ipady=5)
+        # --- Right Side Controls (Save, Restore, Label) ---
+        
+        # 1. Save Button (Far Right)
+        save_btn = ttk.Button(header_frame, text="Save All Settings", command=self.save_settings)
+        save_btn.pack(side="right", padx=(5, 0))
 
-    # --- Button Function Definitions ---
+        # 2. Restore Defaults Button (Next to Save)
+        restore_btn = ttk.Button(header_frame, text="Restore Defaults", command=self.restore_defaults)
+        restore_btn.pack(side="right", padx=(5, 5))
 
-    def change_password_action(self):
-        print(f"Action: Changing password for {self.username}...")
-        # Placeholder for actual logic
-        messagebox.showinfo("Settings", "Change Password clicked!")
+        # 3. Warning Label (Next to Restore)
+        lbl = ttk.Label(header_frame, text="* Restart app for Hardware changes to take effect.", 
+                        font=("Arial", 9, "italic"), foreground="gray")
+        lbl.pack(side="right", padx=15)
 
-    def toggle_theme_action(self):
-        print("Action: Toggling theme...")
-        # Placeholder for actual logic
-        messagebox.showinfo("Settings", "Theme toggled!")
+        # ================= MAIN CONTENT =================
+        
+        # --- Create 2 Columns ---
+        left_col = ttk.Frame(self)
+        left_col.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
+        right_col = ttk.Frame(self)
+        right_col.pack(side="right", fill="both", expand=True, padx=(10, 0))
 
-    def logout_action(self):
-        print(f"Action: Logging out {self.username}...")
-        # Placeholder for actual logic
-        messagebox.showwarning("Settings", "Logout clicked!")
+        # ================= LEFT COLUMN =================
+
+        # --- 1. Hardware Connection Settings ---
+        hw_frame = ttk.LabelFrame(left_col, text="Hardware Connection", padding=15)
+        hw_frame.pack(fill="x", pady=(0, 15))
+
+        # COM Port Dropdown
+        ttk.Label(hw_frame, text="Serial Port:").grid(row=0, column=0, sticky="w", pady=5)
+        
+        # Get available ports
+        ports = [p.device for p in serial.tools.list_ports.comports()]
+        self.vars['port'] = tk.StringVar()
+        self.port_cb = ttk.Combobox(hw_frame, textvariable=self.vars['port'], values=ports)
+        self.port_cb.grid(row=0, column=1, sticky="ew", padx=5)
+        
+        refresh_btn = ttk.Button(hw_frame, text="↻", width=3, command=self.refresh_ports)
+        refresh_btn.grid(row=0, column=2, sticky="w")
+
+        # Baudrate
+        ttk.Label(hw_frame, text="Baudrate:").grid(row=1, column=0, sticky="w", pady=5)
+        self.vars['baudrate'] = tk.StringVar()
+        ttk.Entry(hw_frame, textvariable=self.vars['baudrate']).grid(row=1, column=1, sticky="ew", padx=5)
+
+        hw_frame.columnconfigure(1, weight=1)
+
+        # --- 2. Data & Paths ---
+        path_frame = ttk.LabelFrame(left_col, text="Data Management", padding=15)
+        path_frame.pack(fill="x", pady=(0, 15))
+
+        # Button to open specific user logs
+        open_btn = ttk.Button(path_frame, text=f"Open Logs for '{self.username}'", command=self.open_logs_folder)
+        open_btn.pack(fill="x", pady=5)
+
+        # ================= RIGHT COLUMN =================
+
+        # --- 3. Algorithm / Rep Detection Tuning ---
+        algo_frame = ttk.LabelFrame(right_col, text="Exercise Detection Algorithm", padding=15)
+        algo_frame.pack(fill="x", pady=(0, 15))
+
+        self.create_entry_row(algo_frame, 0, "Smoothing Window:", 'smoothing_window', 
+                              "This averages sensor data to remove jitters.\n- Higher number = smoother lines but more delay (lag).\n- Lower number = very responsive but 'noisy'.\nDefault: 7")
+        
+        self.create_entry_row(algo_frame, 1, "Start Velocity:", 'velocity_pos_threshold',
+                              "How fast you must move to START a repetition.\n- Lower number = more sensitive (easier to start).\n- Higher number = requires faster movement.\nDefault: 10.0")
+
+        self.create_entry_row(algo_frame, 2, "Return Velocity:", 'velocity_neg_threshold',
+                              "How fast you must move DOWN to register the return.\n- Must be a negative number.\nDefault: -10.0")
+        
+        self.create_entry_row(algo_frame, 3, "Target Angle (%):", 'max_angle_tolerance_percent',
+                              "How close to your calibration max you must get to count a rep.\n- Example: 90 means you must reach 90% of your max height.\nDefault: 90")
+
+        algo_frame.columnconfigure(1, weight=1)
+
+        # --- 4. Plotting Visuals ---
+        plot_frame = ttk.LabelFrame(right_col, text="Graph Visuals", padding=15)
+        plot_frame.pack(fill="x", pady=(0, 15))
+
+        self.create_entry_row(plot_frame, 0, "Time Window (s):", 'time_window_seconds',
+                              "The number of seconds displayed on the live graph.\n- Increase to see more history.\nDefault: 5")
+        
+        plot_frame.columnconfigure(1, weight=1)
+
+    def create_entry_row(self, parent, row, label_text, var_key, tooltip=""):
+        ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky="w", pady=5)
+        self.vars[var_key] = tk.StringVar()
+        ent = ttk.Entry(parent, textvariable=self.vars[var_key])
+        ent.grid(row=row, column=1, sticky="ew", padx=5)
+        
+        # Store the label and tooltip for the Info Window
+        if tooltip:
+            clean_name = label_text.replace(":", "")
+            self.help_info.append((clean_name, tooltip))
+
+    def show_info_window(self):
+        """Creates a FULL SCREEN pop-up window displaying the help text."""
+        info_win = tk.Toplevel(self)
+        info_win.title("Settings Guide")
+        
+        # 1. Make Full Screen & Bind Escape
+        info_win.attributes('-fullscreen', True)
+        info_win.bind('<Escape>', lambda e: info_win.destroy())
+
+        # Style for the info window
+        style = ttk.Style()
+        style.configure("InfoTitle.TLabel", font=("Helvetica", 24, "bold"))
+        style.configure("InfoHeader.TLabel", font=("Helvetica", 16, "bold"), foreground="#333")
+        style.configure("InfoBody.TLabel", font=("Arial", 14))
+
+        # Main container
+        main_container = ttk.Frame(info_win, padding=20)
+        main_container.pack(fill="both", expand=True)
+
+        # Title (Centered)
+        ttk.Label(main_container, text="Settings Definitions", style="InfoTitle.TLabel").pack(pady=(20, 20), anchor="center")
+
+        # Scrollable Canvas Setup
+        canvas = tk.Canvas(main_container, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        # Logic to force the scrollable frame to expand to the canvas width
+        def _configure_canvas(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfig(frame_id, width=event.width)
+
+        frame_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.bind("<Configure>", _configure_canvas)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # --- Content Population ---
+        content_wrapper = ttk.Frame(scrollable_frame)
+        content_wrapper.pack(expand=True, fill="x", padx=50)
+
+        for name, desc in self.help_info:
+            frame = ttk.Frame(content_wrapper)
+            frame.pack(fill="x", pady=15)
+            
+            # Name (Centered)
+            ttk.Label(frame, text=name, style="InfoHeader.TLabel").pack(anchor="center")
+            
+            # Description (Centered)
+            ttk.Label(frame, text=desc, style="InfoBody.TLabel", wraplength=900, justify="center").pack(anchor="center", pady=(5, 10))
+            
+            ttk.Separator(frame, orient="horizontal").pack(fill="x", padx=100)
+
+        # Bottom Close Button (Centered)
+        ttk.Button(content_wrapper, text="Close Info (ESC)", command=info_win.destroy).pack(pady=40, anchor="center")
+
+    def refresh_ports(self):
+        ports = [p.device for p in serial.tools.list_ports.comports()]
+        self.port_cb['values'] = ports
+        if ports:
+            self.port_cb.current(0)
+
+    def open_logs_folder(self):
+        """Opens the specific user's log folder."""
+        base_path = config.get('Paths', 'sessions_base_dir', fallback='./user_sessions')
+        
+        # Append username to path
+        user_path = os.path.join(base_path, self.username)
+        
+        if not os.path.exists(user_path):
+            try:
+                os.makedirs(user_path)
+            except OSError as e:
+                messagebox.showerror("Error", f"Could not create folder: {e}")
+                return
+            
+        if platform.system() == "Windows":
+            os.startfile(user_path)
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", user_path])
+        else:
+            subprocess.Popen(["xdg-open", user_path])
+
+    def load_current_values(self):
+        """Reads values from config object and populates entry fields."""
+        try:
+            # Serial
+            self.vars['port'].set(config.get('Serial', 'port', fallback=''))
+            self.vars['baudrate'].set(config.get('Serial', 'baudrate', fallback='115200'))
+            
+            # Algo
+            self.vars['smoothing_window'].set(config.get('RepCounter', 'smoothing_window', fallback='7'))
+            self.vars['velocity_pos_threshold'].set(config.get('RepCounter', 'velocity_pos_threshold', fallback='10.0'))
+            self.vars['velocity_neg_threshold'].set(config.get('RepCounter', 'velocity_neg_threshold', fallback='-10.0'))
+            self.vars['max_angle_tolerance_percent'].set(config.get('RepCounter', 'max_angle_tolerance_percent', fallback='90.0'))
+            
+            # Plotting
+            self.vars['time_window_seconds'].set(config.get('Plotting', 'time_window_seconds', fallback='5'))
+            
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+
+    def restore_defaults(self):
+        """Resets the entry variables to hardcoded default values."""
+        confirm = messagebox.askyesno("Confirm Reset", "Are you sure you want to restore ALL settings to their default values?\n(This includes clearing your Serial Port selection)")
+        if confirm:
+            # Defaults
+            self.vars['baudrate'].set('115200')
+            self.vars['smoothing_window'].set('7')
+            self.vars['velocity_pos_threshold'].set('10.0')
+            self.vars['velocity_neg_threshold'].set('-10.0')
+            self.vars['max_angle_tolerance_percent'].set('90.0')
+            self.vars['time_window_seconds'].set('5')
+            
+            # --- Reset Port to Empty (Auto-detect) ---
+            self.vars['port'].set('')
+
+    def save_settings(self):
+        """Writes values back to config object and saves to file."""
+        try:
+            # Update config object
+            config.set('Serial', 'port', self.vars['port'].get())
+            config.set('Serial', 'baudrate', self.vars['baudrate'].get())
+            
+            config.set('RepCounter', 'smoothing_window', self.vars['smoothing_window'].get())
+            config.set('RepCounter', 'velocity_pos_threshold', self.vars['velocity_pos_threshold'].get())
+            config.set('RepCounter', 'velocity_neg_threshold', self.vars['velocity_neg_threshold'].get())
+            config.set('RepCounter', 'max_angle_tolerance_percent', self.vars['max_angle_tolerance_percent'].get())
+            
+            config.set('Plotting', 'time_window_seconds', self.vars['time_window_seconds'].get())
+
+            # Save to file
+            with open('config.ini', 'w') as configfile:
+                config.write(configfile)
+                
+            messagebox.showinfo("Success", "Settings saved successfully.\nNote: Hardware changes require an app restart.")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save settings: {e}")

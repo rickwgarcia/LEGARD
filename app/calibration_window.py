@@ -84,6 +84,8 @@ class CalibrationWindow(tk.Toplevel):
         
         # --- NEW LOGIC: Send 'c' to Wii Board HERE ---
         if self.serial_thread:
+            logging.info("Sending tare command to Wii Board...")
+            self.serial_thread.send('z')
             logging.info("Sending start command to Wii Board...")
             self.serial_thread.send('c')
             # Clear old queue data
