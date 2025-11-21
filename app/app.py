@@ -15,6 +15,7 @@ from history_tab import HistoryTab
 from data_inputs import SerialThread, SensorThread
 from analytics_tab import AnalyticsTab
 from settings_tab import SettingsTab
+from profile_tab import ProfileTab
 
 # Sensor-related imports
 try:
@@ -216,13 +217,9 @@ class Dashboard(tk.Tk):
         self.destroy()
 
     def create_profile_tab(self, parent_frame):
-        ttk.Label(parent_frame, text=f"Welcome, {self.full_name}!", font=("Helvetica", 16)).pack(pady=20)
-        info_frame = ttk.Frame(parent_frame)
-        info_frame.pack()
-        ttk.Label(info_frame, text="Username:").grid(row=0, column=0, sticky="e", padx=5, pady=2)
-        ttk.Label(info_frame, text=self.username).grid(row=0, column=1, sticky="w", padx=5, pady=2)
-        ttk.Label(info_frame, text="Gender:").grid(row=1, column=0, sticky="e", padx=5, pady=2)
-        ttk.Label(info_frame, text=self.gender).grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        # Instantiate the new class from profile_tab.py
+        profile = ProfileTab(parent_frame, self.username, self.full_name, self.gender)
+        profile.pack(fill="both", expand=True)
 
     def create_routine_tab(self, parent_frame):
         parent_frame.columnconfigure(0, weight=1)

@@ -36,7 +36,7 @@ class SettingsTab(ttk.Frame):
         # --- Right Side Controls (Save, Restore, Label) ---
         
         # 1. Save Button (Far Right)
-        save_btn = ttk.Button(header_frame, text="Save All Settings", command=self.save_settings)
+        save_btn = ttk.Button(header_frame, text="Save", command=self.save_settings)
         save_btn.pack(side="right", padx=(5, 0))
 
         # 2. Restore Defaults Button (Next to Save)
@@ -44,7 +44,7 @@ class SettingsTab(ttk.Frame):
         restore_btn.pack(side="right", padx=(5, 5))
 
         # 3. Warning Label (Next to Restore)
-        lbl = ttk.Label(header_frame, text="* Restart app for Hardware changes to take effect.", 
+        lbl = ttk.Label(header_frame, text="", 
                         font=("Arial", 9, "italic"), foreground="gray")
         lbl.pack(side="right", padx=15)
 
@@ -87,7 +87,7 @@ class SettingsTab(ttk.Frame):
         path_frame.pack(fill="x", pady=(0, 15))
 
         # Button to open specific user logs
-        open_btn = ttk.Button(path_frame, text=f"Open Logs for '{self.username}'", command=self.open_logs_folder)
+        open_btn = ttk.Button(path_frame, text=f"Open Session Logs", command=self.open_logs_folder)
         open_btn.pack(fill="x", pady=5)
 
         # ================= RIGHT COLUMN =================
@@ -236,7 +236,7 @@ class SettingsTab(ttk.Frame):
 
     def restore_defaults(self):
         """Resets the entry variables to hardcoded default values."""
-        confirm = messagebox.askyesno("Confirm Reset", "Are you sure you want to restore ALL settings to their default values?\n(This includes clearing your Serial Port selection)")
+        confirm = messagebox.askyesno("Confirm Reset", "Are you sure you want to restore ALL settings to their default values?\n")
         if confirm:
             # Defaults
             self.vars['baudrate'].set('115200')
@@ -267,7 +267,7 @@ class SettingsTab(ttk.Frame):
             with open('config.ini', 'w') as configfile:
                 config.write(configfile)
                 
-            messagebox.showinfo("Success", "Settings saved successfully.\nNote: Hardware changes require an app restart.")
+            messagebox.showinfo("Success", "Settings saved successfully. App restart required.")
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save settings: {e}")
