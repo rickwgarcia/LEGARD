@@ -193,7 +193,14 @@ class DataProcessor(threading.Thread):
             self.log_filename = os.path.join(user_session_path, f"datalog_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
             self.csv_file = open(self.log_filename, 'w', newline='', encoding='utf-8')
             self.csv_writer = csv.writer(self.csv_file)
+            
+            # --- UPDATE: Write Max and Target Angle ---
             self.csv_writer.writerow(['Max', f"{self.calibrated_max_angle:.4f}"])
+            
+            target_val = self.target_angle_threshold if self.target_angle_threshold != 9999.0 else 0.0
+            self.csv_writer.writerow(['Target', f"{target_val:.4f}"])
+            # ------------------------------------------
+            
             self.csv_writer.writerow(['Set', 'Time', 'Reps', 'Angle', 'Velocity', 'X', 'Y'])
         except IOError: self.csv_file = None
 
