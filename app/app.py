@@ -14,6 +14,7 @@ from config_manager import config
 from history_tab import HistoryTab 
 from data_inputs import SerialThread, SensorThread
 from analytics_tab import AnalyticsTab
+from settings_tab import SettingsTab
 
 # Sensor-related imports
 try:
@@ -271,7 +272,8 @@ class Dashboard(tk.Tk):
         analytics.pack(fill="both", expand=True)
 
     def create_settings_tab(self, parent_frame):
-        ttk.Label(parent_frame, text="Application settings will be configured here.", font=("Helvetica", 14), foreground="gray").pack(expand=True)
+        settings = SettingsTab(parent_frame, self.username)
+        settings.pack(fill="both", expand=True)
 
 class LoginApp(tk.Tk):
     def __init__(self):
