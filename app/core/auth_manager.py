@@ -1,7 +1,7 @@
 import csv
 import hashlib
 import os
-from config_manager import config
+from core.config_manager import config
 
 # Get path from config
 USER_DATA_FILE = config.get('Paths', 'user_data_file')

@@ -5,14 +5,14 @@ import queue
 import serial.tools.list_ports
 
 # Import existing windows and config
-from routine_window import RoutineWindow
-from calibration_window import CalibrationWindow
-from config_manager import config
-from history_tab import HistoryTab 
-from data_inputs import SerialThread, SensorThread
-from analytics_tab import AnalyticsTab
-from settings_tab import SettingsTab
-from profile_tab import ProfileTab
+from ui.windows.routine_window import RoutineWindow
+from ui.windows.calibration_window import CalibrationWindow
+from core.config_manager import config
+from ui.tabs.history_tab import HistoryTab 
+from core.data_inputs import SerialThread, SensorThread
+from ui.tabs.analytics_tab import AnalyticsTab
+from ui.tabs.settings_tab import SettingsTab
+from ui.tabs.profile_tab import ProfileTab
 
 # Sensor-related imports
 try:

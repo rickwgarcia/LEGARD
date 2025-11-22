@@ -9,7 +9,7 @@ import glob
 from datetime import datetime, timedelta
 from collections import defaultdict
 import numpy as np
-from config_manager import config
+from core.config_manager import config
 
 class AnalyticsTab(ttk.Frame):
     def __init__(self, parent, username):

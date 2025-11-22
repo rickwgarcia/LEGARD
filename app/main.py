@@ -1,5 +1,5 @@
-import auth_manager
-from auth_ui import LoginApp
+from core import auth_manager
+from ui.auth_ui import LoginApp
 
 if __name__ == "__main__":
     # Ensure file system is ready

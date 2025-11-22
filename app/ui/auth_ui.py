@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
-import auth_manager
+from core import auth_manager
 
 class RegistrationWindow(tk.Toplevel):
     def __init__(self, parent):
@@ -106,7 +106,7 @@ class LoginApp(tk.Tk):
         if success:
             self.destroy()
             # Lazy import to avoid circular dependency
-            from dashboard import Dashboard
+            from ui.dashboard import Dashboard
             dashboard = Dashboard(username, full_name, gender)
             dashboard.mainloop()
         else:

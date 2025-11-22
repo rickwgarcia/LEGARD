@@ -7,7 +7,7 @@ import platform
 import subprocess
 
 # Import the shared config object
-from config_manager import config
+from core.config_manager import config
 
 class SettingsTab(ttk.Frame):
     def __init__(self, parent, username):

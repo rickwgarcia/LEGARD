@@ -4,7 +4,7 @@ import os
 import csv
 import logging
 from datetime import datetime
-from config_manager import config
+from core.config_manager import config
 
 # --- Imports for plotting ---
 import matplotlib.pyplot as plt

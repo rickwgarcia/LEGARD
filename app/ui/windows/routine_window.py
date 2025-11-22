@@ -15,7 +15,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.animation import FuncAnimation
 import logging
 
-from config_manager import config
+from core.config_manager import config
 
 # --- DataProcessor Class ---
 class DataProcessor(threading.Thread):
