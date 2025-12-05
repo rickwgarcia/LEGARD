@@ -187,29 +187,3 @@ sessions_base_dir = ./data/sessions
 [Logging]
 level = INFO
 ```
-
-## 🖥️ Usage Example
-
-To launch the **Routine Window** from a main dashboard:
-
-```python
-import tkinter as tk
-from queue import Queue
-# Import the module containing RoutineWindow
-
-def start_workout(parent_window, user_name, bno_sensor, sensor_thread, serial_thread):
-    # Create the shared queue for serial data
-    shared_data_queue = Queue()
-    
-    # Launch the routine window
-    routine = RoutineWindow(
-        parent=parent_window,
-        username=user_name,
-        sensor=bno_sensor,
-        shared_queue=shared_data_queue,
-        sensor_thread=sensor_thread,
-        serial_thread=serial_thread,
-        initial_angle=0.0,  # From previous calibration
-        max_angle=90.0      # From previous calibration
-    )
-```
