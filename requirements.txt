@@ -1,0 +1,5 @@
+pyserial
+matplotlib
+numpy
+adafruit-blinka
+adafruit-circuitpython-bno055

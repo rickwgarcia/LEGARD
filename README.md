@@ -76,7 +76,39 @@ The application starts with the `LoginApp`. New users can register, providing a 
 
 ---
 
-## Configuration (`config.ini`)
+## 🛠️ Project Setup and Dependencies
+
+### 1. Python Application Dependencies (`requirements.txt`)
+
+The main GUI application requires the following non-standard Python libraries. It is highly recommended to install these within a virtual environment (`pip install -r requirements.txt`).
+
+| Package | Purpose |
+| :--- | :--- |
+| **`pyserial`** | Handles communication with the Arduino serial device. |
+| **`matplotlib`** | Used for all live and historical data visualization (plotting). |
+| **`numpy`** | Provides high-performance array operations for data processing. |
+| **`adafruit-blinka`** | Enables the use of CircuitPython libraries (like the BNO055 driver) on Linux/SBCs. |
+| **`adafruit-circuitpython-bno055`** | Driver for the BNO055 9-DOF IMU sensor. |
+
+### 2. 🤖 Embedded System Firmware (Arduino Controller)
+
+The application relies on a custom firmware running on an Arduino Nano to handle the four-scale Center of Pressure (CoP) platform.
+
+#### 2.1. Hardware:
+* **1 x Arduino Nano** (or compatible board)
+* **4 x Strain Gauge Load Cells** and **4 x HX711 Amplifier Modules**.
+
+#### 2.2. Firmware Source:
+The custom firmware files (e.g., `cop_controller.ino`, `Scale.h`, etc.) must be compiled and uploaded to the Arduino Nano.
+
+#### 2.3. Software Dependencies (Arduino Libraries):
+The following library must be installed in the Arduino IDE via the **Library Manager** before compiling the firmware:
+
+* **`HX711`** (by Bogdan Necula and Andreas Motl).
+
+---
+
+## ⚙️ Configuration (`config.ini`)
 
 The core behavior of the application is controlled by the following default settings:
 
