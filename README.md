@@ -94,7 +94,9 @@ The main GUI application requires the following non-standard Python libraries. I
 
 ### 2. 🤖 Embedded System Firmware (Arduino Controller)
 
-The application relies on a custom firmware running on an Arduino Nano to handle the four-scale Center of Pressure (CoP) platform.
+The application relies on a custom firmware running on an Arduino Nano to handle the four-scale Center of Pressure (CoP) platform. The source code and documentation for this firmware can be found at the link below.
+
+https://github.com/rickwgarcia/cop_controller
 
 #### 2.1. 💾 Hardware:
 * **1 x Arduino Nano** (or compatible board)
