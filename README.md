@@ -1,14 +1,215 @@
 # Lower-Extremity Guided and Assisted Rehabilitation Device (LEGARD)
 
-## Overview
+## 💡 Overview
 
-The LEGARD (Lower-Extremity Guided and Assisted Rehabilitation Device) is an innovative rehabilitation tool designed to aid in post-surgical hip rehabilitation by improving hip strength and range of motion. Developed by a collaborative team of UNM physical therapy students, engineering students, and recent graduates, the LEGARD project aims to provide an effective in-home alternative to traditional rehabilitative care.
-
+The **LEGARD** (Lower-Extremity Guided and Assisted Rehabilitation Device) is an innovative rehabilitation tool designed to aid in post-surgical hip rehabilitation by improving hip **strength** and **range of motion (ROM)**. Developed by a collaborative team of UNM physical therapy students, engineering students, and recent graduates, the LEGARD project aims to provide an **effective in-home alternative** to traditional rehabilitative care.
 
 ### Project Motivation
 
-Due to barriers in accessing adequate post-surgical rehabilitative care, particularly for in-home settings, LEGARD was conceptualized and designed as a potential in-home rehabilitation device. In-home rehab care is becoming increasingly relevant, and innovations like LEGARD seek to make this experience more accessible and effective for patients.
+Due to barriers in accessing adequate post-surgical rehabilitative care, particularly for in-home settings, **LEGARD** was conceptualized and designed as a potential in-home rehabilitation device. In-home rehab care is becoming increasingly relevant, and innovations like LEGARD seek to make this experience more **accessible** and **effective** for patients.
 
 ### Prototype Development
 
-This prototype is a collaboration between physical therapy and engineering disciplines, co-sponsored by the University of New Mexico's College of Engineering (COE) and UNM Rainforest Innovations. The device was showcased at a UNM event, highlighting advancements in orthopedic rehabilitation practices.
+This prototype is a collaboration between physical therapy and engineering disciplines, co-sponsored by the University of New Mexico's College of Engineering (COE) and UNM Rainforest Innovations. The device was showcased at a UNM event, highlighting advancements in **orthopedic rehabilitation practices**.
+
+## ⚙️ Key Features
+
+  * **Multi-threaded Architecture:** Separates heavy data processing (`DataProcessor`) from the UI (`RoutineWindow`) to ensure a **responsive interface**.
+  * **Real-Time Plotting:** Visualizes **Center of Pressure (CoP)** balance data and **Angle kinematics** instantaneously.
+  * **Smart Rep Counting:** Uses a velocity-based **state machine** to detect repetitions and validate them against calibration targets.
+  * **Session Management:** Handles sets, rest timers, and workout completion logic.
+  * **Data Logging:** Automatically saves granular session data to **CSV files** for post-analysis.
+
+## 📦 Dependencies
+
+  * **Python Standard Library:** `threading`, `queue`, `re`, `csv`, `time`, `math`, `os`, `datetime`, `collections`, `logging`, `tkinter`.
+  * **External Libraries:**
+      * `matplotlib`: For **live graphing** and animation.
+      * `serial`: For **hardware communication**.
+      * `serial.tools.list_ports`: For COM port detection.
+  * **Internal Modules:**
+      * `core.config_manager`: Used to load settings (thresholds, timeouts, paths) from a `config.ini` file.
+
+-----
+
+## 🔌 Hardware & Firmware Requirements
+
+This application relies on a custom hardware interface to capture center-of-pressure (CoP) data. The software is designed to communicate with an **Arduino microcontroller** running specific firmware that aggregates data from four load cells.
+
+### 1\. The Microcontroller Firmware
+
+You must flash your Arduino (Nano or compatible) with the **`cop_controller`** firmware. This firmware handles the raw analog signals from the load cells, performs the CoP calculations, and streams the data over the serial port in the format this application expects (`(x, y)`).
+
+  * **Repository:** [rickwgarcia/cop\_controller](https://github.com/rickwgarcia/cop_controller.git)
+  * **Required Baud Rate:** **115200**
+
+**Installation Steps:**
+
+1.  Download the repository from the link above.
+2.  Install the **HX711** library (by Bogdan Necula) via the Arduino IDE Library Manager.
+3.  Upload `cop_controller.ino` to your device.
+4.  **Important:** Perform the "**Quick Calibrate**" routine (command `k`) via the Arduino Serial Monitor *before* connecting it to this Python application to ensure accurate weight mapping.
+
+### 2\. Hardware Wiring
+
+The Python application expects the CoP data to be derived from a 4-point scale configuration. The firmware requires the following pinout for the **HX711 amplifiers**:
+
+| Component | Scale Position | Arduino Pin |
+| :--- | :--- | :--- |
+| **Common Clock** | All Modules | **D6** (SCK) |
+| **Data Pin A** | Top-Left | **D7** (DOUT) |
+| **Data Pin B** | Top-Right | **D8** (DOUT) |
+| **Data Pin C** | Bottom-Right | **D9** (DOUT) |
+| **Data Pin D** | Bottom-Left | **D10** (DOUT) |
+
+### 3\. Compatibility Note
+
+The `DataProcessor` class in this Python module uses a regex pattern `\(([-]?\d+\.\d+), ([-]?\d+\.\d+)\)` to parse incoming data. This matches the output generated by the `c` (Stream CoP) command in the `cop_controller` firmware. Ensure **no other serial monitors are open** when running the Python application, as it needs **exclusive access** to the COM port.
+
+-----
+
+## 🏗️ Class Architecture
+
+### 1\. `DataProcessor` (Thread)
+
+*Inherits from `threading.Thread`*
+
+The "**brain**" of the operation. It runs in the background to process raw sensor data without freezing the GUI.
+
+**Responsibilities:**
+
+1.  **Data Ingestion:** Reads raw **Center of Pressure (CoP)** coordinates from a shared serial queue and **Quaternion data** from the `SensorThread`.
+2.  **Signal Processing:**
+      * Converts Quaternions to **Euler angles**.
+      * Applies a **moving average window** to smooth signal noise.
+      * Calculates **angular velocity**.
+3.  **Rep Counting Algorithm:**
+      * Implements a **4-stage state machine** (Ready $\to$ Positive Velocity $\to$ Negative Velocity $\to$ Return).
+      * Validates reps based on range of motion thresholds (`target\_angle\_threshold`).
+      * Tracks failed reps (e.g., not going deep enough).
+4.  **Logging:** Writes every data point to a **CSV file**.
+
+**Key Parameters:**
+
+  * `initial_angle`: The **zero-point** established during calibration.
+  * `max_angle`: The user's **maximum range of motion (ROM)** used to set targets.
+
+### 2\. `RoutineWindow` (GUI)
+
+*Inherits from `tk.Toplevel`*
+
+The "**face**" of the session. It provides the user interface for the live workout.
+
+**Responsibilities:**
+
+1.  **Visualization:** Embeds a **Matplotlib** figure with two subplots:
+      * **Left Plot:** 2D Center of Pressure (Balance) trail.
+      * **Right Plot:** Angle vs. Time graph with a target threshold line.
+2.  **Animation:** Uses `FuncAnimation` to update charts at $\sim$**60 FPS** (16ms intervals) by reading from the `plot\_queue`.
+3.  **Controls:** Start/Stop buttons for sets.
+4.  **Lifecycle Management:** Starts and stops the `DataProcessor` thread and handles window closing events safely.
+
+### 3\. `RestTimerWindow` (GUI)
+
+*Inherits from `tk.Toplevel`*
+
+A specialized **full-screen overlay** that appears between sets.
+
+**Responsibilities:**
+
+  * Displays a **countdown timer** based on the user's performance (e.g., shorter rest for easier sets).
+  * Allows the user to "**Skip Rest**" to resume immediately.
+
+-----
+
+## 💾 Data Logging (CSV Structure)
+
+The `DataProcessor` automatically generates a **CSV file** in the user's session directory.
+
+**File Naming:** `datalog_YYYYMMDD_HHMMSS.csv`
+
+**Metadata Headers:**
+
+  * `Max`: The calibrated max angle.
+  * `Target`: The calculated target angle (usually 90% of Max).
+
+**Data Columns:**
+| Column | Description |
+| :--- | :--- |
+| **Set** | Current set number (1, 2, 3...) |
+| **Time** | Elapsed time in seconds since the set started |
+| **Reps** | Cumulative valid repetition count |
+| **Angle** | Smoothed relative angle (degrees) |
+| **Velocity** | Angular velocity (degrees/sec) |
+| **X** | Center of Pressure X-coordinate |
+| **Y** | Center of Pressure Y-coordinate |
+
+-----
+
+## 🧠 Logic Deep Dive: Rep Detection
+
+The `DataProcessor` uses a **state machine** to count reps based on velocity and position:
+
+1.  **State 0 (Ready):** Waiting for velocity to exceed `VELOCITY\_POS\_THRESHOLD` (movement start).
+2.  **State 1 (Positive):** Moving continuously in the positive direction. Tracks the **maximum angle** reached.
+3.  **State 2 (Negative):** Movement reverses (velocity drops below `VELOCITY\_NEG\_THRESHOLD`).
+4.  **State 3 (Reversal/Check):** Velocity returns to near zero.
+      * ***Check:*** Did the `max\_angle\_for\_current\_rep` meet the `target\_angle\_threshold`?
+      * *Yes:* Increment `rep\_count`.
+      * *No:* Increment `consecutive\_failed\_reps`.
+
+-----
+
+## 🛠️ Configuration (`config.ini`)
+
+This module relies on a `config` object. Ensure your `config.ini` includes the following sections:
+
+```ini
+[RepCounter]
+smoothing_window = 10
+velocity_smoothing_window = 5
+velocity_neg_threshold = -20.0
+velocity_pos_threshold = 20.0
+velocity_zero_threshold = 10.0
+max_angle_tolerance_percent = 90.0
+
+[Plotting]
+plot_history_length = 100
+time_window_seconds = 10
+cop_x_limit = 20.0
+cop_y_limit = 20.0
+angle_y_min = 0
+angle_y_max = 180
+
+[Paths]
+sessions_base_dir = ./data/sessions
+
+[Logging]
+level = INFO
+```
+
+## 🖥️ Usage Example
+
+To launch the **Routine Window** from a main dashboard:
+
+```python
+import tkinter as tk
+from queue import Queue
+# Import the module containing RoutineWindow
+
+def start_workout(parent_window, user_name, bno_sensor, sensor_thread, serial_thread):
+    # Create the shared queue for serial data
+    shared_data_queue = Queue()
+    
+    # Launch the routine window
+    routine = RoutineWindow(
+        parent=parent_window,
+        username=user_name,
+        sensor=bno_sensor,
+        shared_queue=shared_data_queue,
+        sensor_thread=sensor_thread,
+        serial_thread=serial_thread,
+        initial_angle=0.0,  # From previous calibration
+        max_angle=90.0      # From previous calibration
+    )
+```
