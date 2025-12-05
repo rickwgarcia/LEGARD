@@ -1,26 +1,28 @@
-# Lower-Extremity Guided and Assisted Rehabilitation Device (LEGARD) 
 
-## Overview 🦵
+
+# Lower-Extremity Guided and Assisted Rehabilitation Device (LEGARD)
+
+## 💡 Overview
 
 The LEGARD (Lower-Extremity Guided and Assisted Rehabilitation Device) is an innovative rehabilitation tool designed to aid in post-surgical hip rehabilitation by improving hip strength and range of motion. Developed by a collaborative team of UNM physical therapy students, engineering students, and recent graduates, the LEGARD project aims to provide an effective in-home alternative to traditional rehabilitative care.
 
 ---
 
-### Project Motivation 💡
+### 🏡 Project Motivation
 
 Due to barriers in accessing adequate post-surgical rehabilitative care, particularly for in-home settings, LEGARD was conceptualized and designed as a potential in-home rehabilitation device. In-home rehab care is becoming increasingly relevant, and innovations like LEGARD seek to make this experience more accessible and effective for patients.
 
-### Prototype Development 🏗️
+### 🏗️ Prototype Development
 
 This prototype is a collaboration between physical therapy and engineering disciplines, co-sponsored by the University of New Mexico's College of Engineering (COE) and UNM Rainforest Innovations. The device was showcased at a UNM event, highlighting advancements in orthopedic rehabilitation practices.
 
 ---
 
-## Technical Architecture 💻
+## 💻 Technical Architecture
 
 The LEGARD application is built using a modular Python structure with **Tkinter** for the graphical user interface and multithreading for concurrent hardware and data management.
 
-### Key Components 🧩
+### 🧩 Key Components
 
 * **`core.auth_manager` (Authentication):**
     * Handles user **registration** and **login** using usernames and 4-digit PINs.
@@ -44,12 +46,12 @@ The LEGARD application is built using a modular Python structure with **Tkinter*
 
 ---
 
-## Application Workflow and Features ✨
+## ✨ Application Workflow and Features
 
-### 1. User Authentication 🔒
+### 1. 🔒 User Authentication
 The application starts with the `LoginApp`. New users can register, providing a unique username and a 4-digit PIN.
 
-### 2. Routine and Calibration 📐
+### 2. 📐 Routine and Calibration
 * **`ui.windows.calibration_window`:** Guides the user through a two-step process:
     1.  **Zeroing:** Establishes a baseline `initial_angle` by averaging sensor readings while the user stands still.
     2.  **Max Angle Tracking:** Determines the user's safe **Maximum Range of Motion (`max_angle`)** by tracking the highest angle achieved during a guided movement.
@@ -60,7 +62,7 @@ The application starts with the `LoginApp`. New users can register, providing a 
     * Implements a **Repetition Counting Algorithm** that uses velocity and angle thresholds to detect successful repetitions.
     * Manages multi-set routines, including optional **Rest Timer** pop-ups between sets.
 
-### 3. Data Analysis and Management 📊
+### 3. 📊 Data Analysis and Management
 
 * **`ui.tabs.history_tab`:** Allows the user to select any previous session and set to view the raw data. Features an interactive plot scrubber to synchronize the **Center of Pressure (CoP)** plot and **Relative Angle** plot across time.
 * **`ui.tabs.analytics_tab`:** Reads logged session data from CSV files and provides **data visualizations** using Matplotlib. Graphs include:
@@ -78,7 +80,7 @@ The application starts with the `LoginApp`. New users can register, providing a 
 
 ## 🛠️ Project Setup and Dependencies
 
-### 1. Python Application Dependencies (`requirements.txt`)
+### 1. 🐍 Python Application Dependencies (`requirements.txt`)
 
 The main GUI application requires the following non-standard Python libraries. It is highly recommended to install these within a virtual environment (`pip install -r requirements.txt`).
 
@@ -94,14 +96,14 @@ The main GUI application requires the following non-standard Python libraries. I
 
 The application relies on a custom firmware running on an Arduino Nano to handle the four-scale Center of Pressure (CoP) platform.
 
-#### 2.1. Hardware:
+#### 2.1. 💾 Hardware:
 * **1 x Arduino Nano** (or compatible board)
 * **4 x Strain Gauge Load Cells** and **4 x HX711 Amplifier Modules**.
 
-#### 2.2. Firmware Source:
+#### 2.2. 💻 Firmware Source:
 The custom firmware files (e.g., `cop_controller.ino`, `Scale.h`, etc.) must be compiled and uploaded to the Arduino Nano.
 
-#### 2.3. Software Dependencies (Arduino Libraries):
+#### 2.3. 📚 Software Dependencies (Arduino Libraries):
 The following library must be installed in the Arduino IDE via the **Library Manager** before compiling the firmware:
 
 * **`HX711`** (by Bogdan Necula and Andreas Motl).
