@@ -11,8 +11,27 @@ from collections import defaultdict
 import numpy as np
 from core.config_manager import config
 
+"""
+Module containing the AnalyticsTab, a Tkinter frame responsible for 
+parsing user session data from CSV files and visualizing it using Matplotlib.
+"""
+
 class AnalyticsTab(ttk.Frame):
+    """
+    A Tkinter tab within the main dashboard that provides data visualization 
+    and analysis of a user's exercise history.
+
+    It reads session data from the user's directory, aggregates statistics, 
+    and displays various performance graphs.
+    """
     def __init__(self, parent, username):
+        """
+        Initializes the AnalyticsTab.
+
+        Args:
+            parent (ttk.Notebook): The Notebook widget this tab belongs to.
+            username (str): The username of the currently logged-in user.
+        """
         super().__init__(parent)
         self.username = username
         self.sessions_dir = config.get('Paths', 'sessions_base_dir')
@@ -20,11 +39,10 @@ class AnalyticsTab(ttk.Frame):
         
         # Data containers
         self.session_data = [] # List of dicts containing parsed stats per session
-        self.daily_reps = defaultdict(int)
-        self.weekly_sessions = defaultdict(int)
-        self.monthly_sessions = defaultdict(int)
+        self.daily_reps = defaultdict(int) # Aggregates total reps by date string
+        self.weekly_sessions = defaultdict(int) # Aggregates session count by week key (YYYY-WNN)
+        self.monthly_sessions = defaultdict(int) # Aggregates session count by month key (YYYY-MM)
 
-        # --- Updated Naming Convention ---
         self.graph_options = [
             "Select a Graph...",
             "Repetitions per Day",
@@ -38,7 +56,8 @@ class AnalyticsTab(ttk.Frame):
         self.refresh_data()
 
     def setup_ui(self):
-        # --- Top control bar ---
+        """Sets up the Tkinter layout, including the graph selector and Matplotlib canvas."""
+        # Top control bar
         control_frame = ttk.Frame(self)
         control_frame.pack(fill='x', pady=5, padx=5)
         
@@ -54,16 +73,16 @@ class AnalyticsTab(ttk.Frame):
             state="readonly", 
             width=30
         )
-        self.graph_selector.current(0) # Select default
+        self.graph_selector.current(0)
         self.graph_selector.pack(side='left')
         
         self.graph_selector.bind("<<ComboboxSelected>>", self.on_graph_select)
 
-        # --- Graphs Container ---
+        # Graphs Container
         self.graph_frame = ttk.Frame(self)
         self.graph_frame.pack(fill='both', expand=True)
 
-        # Initialize Matplotlib Figure
+        # Initialize Matplotlib Figure and link to Tkinter
         self.fig = plt.Figure(figsize=(10, 8), dpi=100)
         self.ax1 = self.fig.add_subplot(111) 
         
@@ -74,13 +93,24 @@ class AnalyticsTab(ttk.Frame):
         self.ax1.axis('off')
 
     def refresh_data(self):
+        """Parses the raw data files and redraws the currently selected graph."""
         self.parse_history()
         self.plot_graphs()
 
     def on_graph_select(self, event):
+        """Event handler for the graph selector combobox; triggers graph redraw."""
         self.plot_graphs()
 
     def parse_history(self):
+        """
+        Reads all CSV data files for the current user, extracts metadata and 
+        performance statistics, and aggregates them into instance variables.
+
+        Calculates:
+        - Total reps per day.
+        - Session count per week and month.
+        - Per-session averages for velocity and max angle achieved per rep.
+        """
         # Reset containers
         self.daily_reps.clear()
         self.weekly_sessions.clear()
@@ -105,73 +135,64 @@ class AnalyticsTab(ttk.Frame):
                 display_date = session_dt.strftime("%Y-%m-%d")
                 
                 # Keys for frequency charts
-                week_key = session_dt.strftime("%Y-W%U") # Year-WeekNumber
+                week_key = session_dt.strftime("%Y-W%U")
                 month_key = session_dt.strftime("%Y-%m")
                 
             except (IndexError, ValueError):
                 continue 
 
-            # --- Per Session Variables ---
+            # Per Session Variables
             target_angle = 0.0
             max_angle_calibration = 0.0
             
-            # Rep tracking
-            rep_max_angles = defaultdict(float) # Key: (set, rep_count), Value: max_angle
-            
-            # Velocity tracking
+            rep_max_angles = defaultdict(float) 
             positive_velocities = []
-            
-            # Total Reps (using the max rep count per set logic)
             set_max_reps = defaultdict(int)
 
             try:
                 with open(filepath, 'r') as f:
                     reader = csv.reader(f)
                     
-                    # -- Parse Metadata Rows --
-                    # Row 1: Max Calibration
+                    # Parse Metadata Rows
                     row1 = next(reader, None)
                     if row1 and row1[0] == 'Max':
                         max_angle_calibration = float(row1[1])
                     
-                    # Row 2: Target Angle
                     row2 = next(reader, None)
                     if row2 and row2[0] == 'Target':
                         target_angle = float(row2[1])
 
-                    # Row 3: Headers (Skip)
-                    headers = next(reader, None)
+                    headers = next(reader, None) # Skip Headers
                     
-                    # -- Parse Data Rows --
+                    # Parse Data Rows
                     for row in reader:
                         if len(row) < 5: continue
                         try:
                             set_num = int(row[0])
-                            rep_count = int(row[2]) # This is "completed reps"
+                            rep_count = int(row[2])
                             angle = float(row[3])
                             velocity = float(row[4])
 
-                            # 1. Track Max Reps per Set
+                            # Track Max Reps per Set
                             if rep_count > set_max_reps[set_num]:
                                 set_max_reps[set_num] = rep_count
 
-                            # 2. Track Max Angle per specific Rep
+                            # Track Max Angle per specific Rep
                             key = (set_num, rep_count)
                             if angle > rep_max_angles[key]:
                                 rep_max_angles[key] = angle
 
-                            # 3. Track Positive Velocity
+                            # Track Positive Velocity
                             if velocity > 0:
                                 positive_velocities.append(velocity)
 
                         except ValueError:
                             continue
                     
-                    # -- Session Aggregation --
+                    # Session Aggregation
                     total_reps = sum(set_max_reps.values())
                     self.daily_reps[display_date] += total_reps
                     
-                    # Only count session if it had data
                     self.weekly_sessions[week_key] += 1
                     self.monthly_sessions[month_key] += 1
 
@@ -197,8 +218,9 @@ class AnalyticsTab(ttk.Frame):
                 print(f"Error parsing {filename}: {e}")
 
     def plot_graphs(self):
+        """Clears the existing Matplotlib figure and draws the graph based on the current selection."""
         self.ax1.clear()
-        self.ax1.axis('on') # Default on
+        self.ax1.axis('on')
         selection = self.graph_selector.get()
 
         if selection == "Repetitions per Day":
@@ -219,6 +241,7 @@ class AnalyticsTab(ttk.Frame):
         self.canvas.draw()
 
     def draw_daily_reps(self):
+        """Draws a bar chart showing the total number of repetitions completed each day."""
         if not self.daily_reps:
             self.ax1.text(0.5, 0.5, "No Data", ha='center'); return
 
@@ -235,6 +258,7 @@ class AnalyticsTab(ttk.Frame):
             self.ax1.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
 
     def draw_sessions_per_week(self):
+        """Draws a bar chart showing the number of sessions completed per week."""
         if not self.weekly_sessions:
             self.ax1.text(0.5, 0.5, "No Data", ha='center'); return
         
@@ -254,6 +278,14 @@ class AnalyticsTab(ttk.Frame):
             self.ax1.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
 
     def draw_line_plot_over_time(self, key, y_label, title):
+        """
+        Draws a line plot showing a specific metric over the chronological sequence of sessions.
+
+        Args:
+            key (str): The key in `self.session_data` dictionary to plot (e.g., 'avg_pos_velocity').
+            y_label (str): The label for the Y-axis.
+            title (str): The title for the graph.
+        """
         if not self.session_data:
             self.ax1.text(0.5, 0.5, "No Data", ha='center'); return
 

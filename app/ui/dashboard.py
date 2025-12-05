@@ -23,8 +23,30 @@ except ImportError:
     board = None
     adafruit_bno055 = None
 
+"""
+The main application dashboard, serving as the central hub for the GUI 
+and hardware management.
+
+It initializes the user interface (Notebook with multiple tabs) and establishes 
+multithreaded connections for the serial device (e.g., balance board) and the 
+I2C sensor (BNO055). It manages the lifespan of these threads and ensures 
+data integrity via a shared queue.
+"""
+
 class Dashboard(tk.Tk):
+    """
+    The main application window hosting all functional tabs and managing 
+    hardware threads.
+    """
     def __init__(self, username, full_name, gender):
+        """
+        Initializes the Dashboard, setting up the GUI and hardware connections.
+
+        Args:
+            username (str): The logged-in user's unique username.
+            full_name (str): The logged-in user's full name.
+            gender (str): The logged-in user's gender.
+        """
         super().__init__()
         self.username = username
         self.full_name = full_name
@@ -35,10 +57,10 @@ class Dashboard(tk.Tk):
         
         self.routine_window = None
         
-        # --- Hardware Initialization ---
+        # Shared queue for data from both serial and sensor threads
         self.shared_queue = queue.Queue()
         
-        # 1. Init Sensor
+        # --- Hardware Initialization ---
         self.sensor = None
         self.init_sensor()
         self.sensor_thread = None
@@ -46,7 +68,6 @@ class Dashboard(tk.Tk):
             self.sensor_thread = SensorThread(self.sensor)
             self.sensor_thread.start()
 
-        # 2. Init Serial
         self.serial_thread = None
         port = config.get('Serial', 'port')
         baud = config.getint('Serial', 'baudrate')
@@ -67,6 +88,7 @@ class Dashboard(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
     def setup_tabs(self):
+        """Initializes and adds all functional tabs to the Notebook widget."""
         tabs = {
             "[P] Profile": self.create_profile_tab, 
             "[R] Routine": self.create_routine_tab, 
@@ -80,7 +102,12 @@ class Dashboard(tk.Tk):
             creation_func(frame)
 
     def init_sensor(self):
-        """Initializes the BNO055 sensor object (Hardware only)."""
+        """
+        Initializes the BNO055 sensor object using I2C communication.
+
+        Sets `self.sensor` to the initialized object or `None` if hardware 
+        or library import fails. Logs initialization status.
+        """
         if board and adafruit_bno055:
             try:
                 i2c = board.I2C()
@@ -93,9 +120,14 @@ class Dashboard(tk.Tk):
             self.sensor = None
 
     def on_closing(self):
+        """
+        Handles application shutdown, ensuring all running threads are safely 
+        stopped before destroying the GUI.
+        """
         # Clean up threads
         if self.sensor_thread: self.sensor_thread.stop()
         if self.serial_thread: 
+            # Send 's' command to the serial device to signal stop/reset
             self.serial_thread.send('s')
             self.serial_thread.stop()
             
@@ -104,20 +136,27 @@ class Dashboard(tk.Tk):
         self.destroy()
 
     def create_profile_tab(self, parent_frame):
+        """Instantiates and packs the ProfileTab."""
         profile = ProfileTab(parent_frame, self.username, self.full_name, self.gender)
         profile.pack(fill="both", expand=True)
 
     def create_routine_tab(self, parent_frame):
+        """Sets up the content for the Routine tab, featuring the 'Start New Routine' button."""
         parent_frame.columnconfigure(0, weight=1)
         parent_frame.rowconfigure(0, weight=1)
         start_button = ttk.Button(parent_frame, text="Start New Routine", command=self.start_routine)
         start_button.grid(row=0, column=0, ipady=20, ipadx=40)
 
     def start_routine(self):
+        """
+        Starts the routine workflow by launching the CalibrationWindow.
+
+        If a RoutineWindow already exists, it is simply brought to the front. 
+        It passes all necessary thread and hardware objects to the CalibrationWindow.
+        """
         if self.routine_window and self.routine_window.winfo_exists():
             self.routine_window.lift()
             return
-        # Pass threads and queue to Calibration
         CalibrationWindow(
             self, 
             self.sensor, 
@@ -128,10 +167,19 @@ class Dashboard(tk.Tk):
         )
 
     def launch_routine_window(self, initial_angle, max_angle):
+        """
+        Callback function executed after calibration is complete. 
+
+        Launches the main RoutineWindow, passing in the hardware objects 
+        and the calibration results (initial_angle, max_angle).
+
+        Args:
+            initial_angle (float): The calibrated starting angle.
+            max_angle (float): The calibrated maximum range of motion angle.
+        """
         if self.routine_window and self.routine_window.winfo_exists():
             self.routine_window.lift()
             return
-        # Pass threads and queue to Routine
         self.routine_window = RoutineWindow(
             self, 
             self.username, 
@@ -145,13 +193,16 @@ class Dashboard(tk.Tk):
         self.routine_window.focus()
 
     def create_history_tab(self, parent_frame):
+        """Instantiates and packs the HistoryTab."""
         history_tab = HistoryTab(parent_frame, self.username)
         history_tab.pack(fill="both", expand=True)
 
     def create_analytics_tab(self, parent_frame):
+        """Instantiates and packs the AnalyticsTab."""
         analytics = AnalyticsTab(parent_frame, self.username)
         analytics.pack(fill="both", expand=True)
 
     def create_settings_tab(self, parent_frame):
+        """Instantiates and packs the SettingsTab."""
         settings = SettingsTab(parent_frame, self.username)
         settings.pack(fill="both", expand=True)

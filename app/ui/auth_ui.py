@@ -2,8 +2,28 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from core import auth_manager
 
+"""
+Module containing the user interface elements for the application's authentication flow.
+
+It includes the main LoginApp window and the RegistrationWindow Toplevel window, 
+handling user input, validation, and interaction with the auth_manager logic.
+"""
+
 class RegistrationWindow(tk.Toplevel):
+    """
+    A Toplevel window for new user registration.
+
+    This window requires the user to input personal details, a username, and a 
+    4-digit PIN. It validates the input and calls the authentication manager 
+    to create the new account.
+    """
     def __init__(self, parent):
+        """
+        Initializes the registration window.
+
+        Args:
+            parent (tk.Tk or tk.Toplevel): The parent window (usually the LoginApp).
+        """
         super().__init__(parent)
         self.title("Register New User")
         self.attributes('-fullscreen', True)
@@ -49,9 +69,27 @@ class RegistrationWindow(tk.Toplevel):
         frame.columnconfigure(1, weight=1)
 
     def validate_pin(self, new_value):
+        """
+        Tkinter validation command to ensure the PIN field accepts only digits 
+        and is limited to a maximum length of 4 characters.
+
+        Args:
+            new_value (str): The value the entry field would have if the current 
+                             keystroke were accepted.
+
+        Returns:
+            bool: True if the input is valid, False otherwise.
+        """
         return (new_value == "" or new_value.isdigit()) and len(new_value) <= 4
 
     def submit(self):
+        """
+        Handles the submission of the registration form.
+
+        Gathers data from entry fields, performs local PIN validation, and 
+        calls `auth_manager.register_user` to create the account. Displays 
+        success or error messages using Tkinter's messagebox.
+        """
         pin = self.pin_entry.get()
         if len(pin) != 4:
             messagebox.showerror("Error", "Your PIN must be exactly 4 digits.")
@@ -62,7 +100,7 @@ class RegistrationWindow(tk.Toplevel):
         gender = self.gender_combobox.get()
         username = self.username_entry.get()
 
-        # Use the Manager for logic
+        # Call the Manager for logic
         success, message = auth_manager.register_user(username, pin, first_name, last_name, gender)
         
         if success:
@@ -72,7 +110,14 @@ class RegistrationWindow(tk.Toplevel):
             messagebox.showerror("Error", message)
 
 class LoginApp(tk.Tk):
+    """
+    The main Tkinter application window for user login.
+
+    It collects username and PIN, handles the login process by interacting 
+    with the auth_manager, and provides an option to open the registration window.
+    """
     def __init__(self):
+        """Initializes the main application window (Login screen)."""
         super().__init__()
         self.title("Exercise App Login")
         self.attributes('-fullscreen', True)
@@ -97,10 +142,17 @@ class LoginApp(tk.Tk):
         ttk.Button(button_frame, text="Register", command=self.handle_register).pack(side=tk.LEFT, padx=5)
 
     def handle_login(self):
+        """
+        Processes the login attempt.
+
+        Gathers credentials and calls `auth_manager.login_user`. If successful, 
+        it closes the login window and starts the main dashboard application. 
+        If unsuccessful, it displays an error message.
+        """
         username = self.username_entry.get()
         pin = self.pin_entry.get()
         
-        # Use the Manager for logic
+        # Call the Manager for logic
         success, message, full_name, gender = auth_manager.login_user(username, pin)
         
         if success:
@@ -113,4 +165,5 @@ class LoginApp(tk.Tk):
             messagebox.showerror("Login Failed", message)
 
     def handle_register(self):
+        """Opens the RegistrationWindow as a Toplevel window."""
         RegistrationWindow(self)

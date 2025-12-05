@@ -6,34 +6,48 @@ import logging
 from datetime import datetime
 from core.config_manager import config
 
-# --- Imports for plotting ---
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+"""
+Module containing the HistoryTab, a Tkinter frame dedicated to viewing 
+the detailed raw data of previously recorded exercise sessions.
+"""
+
 class HistoryTab(ttk.Frame):
     """
-    A ttk.Frame that contains the complete UI and logic for the History tab,
-    featuring plots for CoP and Angle with interactive 'scrubbing' cursors.
+    A Tkinter tab component that allows users to select and view the 
+    Center of Pressure (CoP) and Angle data for a specific session and set.
+
+    It includes an interactive scrubbing feature that links a cursor across 
+    both plots based on time.
     """
     def __init__(self, parent, username, **kwargs):
+        """
+        Initializes the HistoryTab.
+
+        Args:
+            parent (ttk.Notebook): The Notebook widget this tab belongs to.
+            username (str): The username of the currently logged-in user.
+        """
         super().__init__(parent, **kwargs)
 
         self.username = username
 
-        # --- Instance variables to store data ---
-        self.session_files = {}
-        self.current_session_data = []
+        # Instance variables to store data
+        self.session_files = {} # Maps display name to full file path
+        self.current_session_data = [] # Raw rows of data for the selected session
         self.current_session_headers = []
         self.calibrated_max_angle = None
         self.saved_target_angle = None
         
-        # --- Variables to hold plotting data for interactivity ---
+        # Variables to hold plotting data for interactivity (all synchronized by index)
         self.times = []
-        self.angles = []    # Store angles for the Y-axis cursor
-        self.x_coords = []
-        self.y_coords = []
+        self.angles = []
+        self.x_coords = [] # CoP X-coordinates
+        self.y_coords = [] # CoP Y-coordinates
 
-        # --- References to the cursor visual elements ---
+        # References to the cursor visual elements
         self.cursor_angle_dot = None # The dot on the Angle plot
         self.cursor_cop_dot = None   # The dot on the CoP plot
         self.is_dragging = False     # Track if mouse button is held down
@@ -42,7 +56,8 @@ class HistoryTab(ttk.Frame):
         self.load_session_files()
 
     def setup_widgets(self):
-        # --- Top control frame ---
+        """Sets up the Tkinter layout, including the data selectors and the Matplotlib canvas."""
+        # Top control frame
         control_frame = ttk.Frame(self, padding=(10, 10))
         control_frame.pack(fill='x')
 
@@ -63,37 +78,39 @@ class HistoryTab(ttk.Frame):
 
         control_frame.columnconfigure(4, weight=1) 
 
-        # --- Plot display frame ---
+        # Plot display frame
         plot_frame = ttk.Frame(self)
         plot_frame.pack(fill='both', expand=True, padx=10, pady=(0, 10))
 
-        # --- Matplotlib Figure and Axes ---
+        # Matplotlib Figure and Axes: Two subplots side-by-side
         self.fig, (self.ax_cop, self.ax_angle) = plt.subplots(
             1, 2, figsize=(9, 3), dpi=100, constrained_layout=True
         )
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
 
-        # --- Connect Events for Dragging/Scrubbing ---
+        # Connect Events for Dragging/Scrubbing
         self.canvas.mpl_connect('button_press_event', self.on_click)
         self.canvas.mpl_connect('motion_notify_event', self.on_drag)
         self.canvas.mpl_connect('button_release_event', self.on_release)
 
         self.reset_plots()
 
-        # --- Bind events ---
+        # Bind events
         self.session_combo.bind('<<ComboboxSelected>>', self.on_session_selected)
         self.set_combo.bind('<<ComboboxSelected>>', self.on_set_selected)
 
     def refresh_history(self):
+        """Clears the current view, reloads the list of available session files, and resets the plots."""
         self.load_session_files()
         self.set_combo.set('')
         self.set_combo.config(state="disabled")
         self.reset_plots("Data refreshed. Select a session.")
 
     def reset_plots(self, message="Select a session to load data"):
-        """Clears and formats the plots to their initial state."""
+        """Clears both plot axes and sets them to their default, empty state."""
         self.ax_cop.clear()
         self.ax_angle.clear()
 
@@ -126,6 +143,7 @@ class HistoryTab(ttk.Frame):
         self.canvas.draw()
 
     def load_session_files(self):
+        """Scans the user's session directory and populates the session combobox."""
         self.session_files = {}
         try:
             user_sessions_dir = os.path.join(config.get('Paths', 'sessions_base_dir'), self.username)
@@ -139,6 +157,7 @@ class HistoryTab(ttk.Frame):
                 if filename.startswith('datalog_') and filename.endswith('.csv'):
                     full_path = os.path.join(user_sessions_dir, filename)
                     try:
+                        # Extract timestamp from filename format: datalog_YYYYMMDD_HHMMSS.csv
                         timestamp_str = filename[8:-4] 
                         dt = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
                         display_name = dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -148,6 +167,7 @@ class HistoryTab(ttk.Frame):
                         logging.warning(f"Skipping file with unexpected name: {filename}")
             
             if session_files_found:
+                # Display the most recent sessions first
                 self.session_combo.config(values=sorted(session_files_found, reverse=True))
                 self.session_combo.set("Select a session")
                 self.metadata_label_var.set("Please select a session.")
@@ -160,6 +180,12 @@ class HistoryTab(ttk.Frame):
             self.metadata_label_var.set("Error loading sessions.")
 
     def on_session_selected(self, event=None):
+        """
+        Event handler for the session combobox selection.
+
+        Parses the selected CSV file, extracts metadata and all raw data rows, 
+        and populates the set combobox.
+        """
         selected_display_name = self.session_combo.get()
         file_path = self.session_files.get(selected_display_name)
         if not file_path:
@@ -175,6 +201,7 @@ class HistoryTab(ttk.Frame):
             with open(file_path, 'r', encoding='utf-8') as f:
                 reader = csv.reader(f)
                 try:
+                    # Parse metadata (Max angle)
                     line1 = next(reader)
                     if line1 and line1[0] == 'Max':
                         self.calibrated_max_angle = float(line1[1])
@@ -186,6 +213,7 @@ class HistoryTab(ttk.Frame):
 
                 if not self.current_session_headers:
                     try:
+                        # Parse metadata (Target angle) and get headers
                         line2 = next(reader)
                         if line2 and line2[0] == 'Target':
                             self.saved_target_angle = float(line2[1])
@@ -195,6 +223,7 @@ class HistoryTab(ttk.Frame):
                     except StopIteration:
                         pass 
 
+                # Update metadata label
                 meta_text = ""
                 if self.calibrated_max_angle:
                     meta_text += f"Max: {self.calibrated_max_angle:.1f}°"
@@ -202,6 +231,7 @@ class HistoryTab(ttk.Frame):
                     meta_text += f" | Target: {self.saved_target_angle:.1f}°"
                 self.metadata_label_var.set(meta_text if meta_text else "No metadata found.")
 
+                # Read remaining data rows
                 if self.current_session_headers and 'Set' in self.current_session_headers:
                     set_col_idx = self.current_session_headers.index('Set')
                     for row in reader:
@@ -225,12 +255,17 @@ class HistoryTab(ttk.Frame):
         self.plot_data("All Sets")
 
     def on_set_selected(self, event=None):
+        """Event handler for the set combobox selection; triggers plotting of the selected set."""
         selected_set = self.set_combo.get()
         if not selected_set:
             return
         self.plot_data(selected_set)
 
     def plot_data(self, selected_set):
+        """
+        Filters the raw data by the selected set, extracts the plotting vectors, 
+        and redraws both the CoP and Angle charts.
+        """
         self.ax_cop.clear()
         self.ax_angle.clear()
 
@@ -244,6 +279,7 @@ class HistoryTab(ttk.Frame):
             return
 
         try:
+            # Get column indices
             set_idx = self.current_session_headers.index('Set')
             time_idx = self.current_session_headers.index('Time')
             angle_idx = self.current_session_headers.index('Angle')
@@ -260,10 +296,10 @@ class HistoryTab(ttk.Frame):
         self.x_coords = []
         self.y_coords = []
 
+        # Filter data based on selected set
         for row in self.current_session_data:
             if selected_set == "All Sets" or row[set_idx] == selected_set:
                 try:
-                    # Populate instance variables
                     self.times.append(float(row[time_idx]))
                     self.angles.append(float(row[angle_idx]))
                     self.x_coords.append(float(row[x_idx]))
@@ -275,6 +311,7 @@ class HistoryTab(ttk.Frame):
             self.reset_plots(f"No data found for '{selected_set}'.")
             return
 
+        # --- CoP Plot (X vs Y) ---
         cop_x_lim = config.getfloat('Plotting', 'cop_x_limit', fallback=10)
         cop_y_lim = config.getfloat('Plotting', 'cop_y_limit', fallback=10)
         
@@ -287,6 +324,7 @@ class HistoryTab(ttk.Frame):
         self.ax_cop.set_xticklabels([])
         self.ax_cop.set_yticklabels([])
 
+        # --- Angle Plot (Angle vs Time) ---
         angle_y_min = config.getfloat('Plotting', 'angle_y_min', fallback=-10)
         angle_y_max = config.getfloat('Plotting', 'angle_y_max', fallback=100)
         
@@ -298,6 +336,7 @@ class HistoryTab(ttk.Frame):
         self.ax_angle.set_ylim(angle_y_min, angle_y_max)
         self.ax_angle.set_xlim(min(self.times), max(self.times))
 
+        # Add Target/Max Line
         target_to_plot = None
         if self.saved_target_angle is not None:
             target_to_plot = self.saved_target_angle
@@ -316,12 +355,21 @@ class HistoryTab(ttk.Frame):
     # --- INTERACTIVE CURSOR LOGIC ---
 
     def update_cursors(self, x_input):
-        """Helper: Updates the positions of both dots based on time x_input."""
+        """
+        Updates the position of the marker dots on both plots based on a time 
+        value (`x_input`) derived from the mouse position.
+
+        It finds the nearest data point in time and uses its corresponding 
+        angle and CoP coordinates for the dot positions.
+
+        Args:
+            x_input (float): The time value (x-coordinate) from the mouse event on the angle plot.
+        """
         if not self.times:
             return
 
         # 1. Find nearest index
-        # This creates a generator of valid indices and picks the one with min time difference
+        # Finds the index with the minimum absolute difference from x_input
         idx = min(range(len(self.times)), key=lambda i: abs(self.times[i] - x_input))
 
         # 2. Get values at that index
@@ -334,7 +382,7 @@ class HistoryTab(ttk.Frame):
         if self.cursor_angle_dot:
             self.cursor_angle_dot.set_data([t], [ang])
         else:
-            # zorder=5 ensures the dot sits ON TOP of the green line
+            # Create the dot, setting zorder to ensure it is visible over the line
             self.cursor_angle_dot, = self.ax_angle.plot(t, ang, 'ro', markersize=6, zorder=5)
 
         # 4. Update CoP Graph Dot (Red Dot)
@@ -347,16 +395,16 @@ class HistoryTab(ttk.Frame):
         self.canvas.draw_idle()
 
     def on_click(self, event):
-        """Start dragging if click is on the Angle graph."""
+        """Matplotlib event: Initiates the dragging state if the click occurs on the angle plot."""
         if event.inaxes == self.ax_angle:
             self.is_dragging = True
             self.update_cursors(event.xdata)
 
     def on_drag(self, event):
-        """Update position if dragging."""
+        """Matplotlib event: Updates the cursor position continuously while the mouse is dragged over the angle plot."""
         if self.is_dragging and event.inaxes == self.ax_angle:
             self.update_cursors(event.xdata)
 
     def on_release(self, event):
-        """Stop dragging."""
+        """Matplotlib event: Terminates the dragging state."""
         self.is_dragging = False
