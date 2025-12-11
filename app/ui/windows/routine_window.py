@@ -18,14 +18,14 @@ import logging
 from core.config_manager import config
 
 """
-Module containing the DataProcessor thread for high-frequency data analysis and 
+Module containing the DataProcessor thread for high-frequency data analysis and
 rep counting, and the RoutineWindow for real-time visualization and session management.
 """
 
 class DataProcessor(threading.Thread):
     """
-    A dedicated thread that continuously reads raw data from the shared queue 
-    and sensor thread, performs smoothing, calculates velocity, executes the 
+    A dedicated thread that continuously reads raw data from the shared queue
+    and sensor thread, performs smoothing, calculates velocity, executes the
     rep counting algorithm, and logs all processed data to a CSV file.
     """
     def __init__(self, sensor_thread, data_queue, plot_queue, username, initial_angle=None, max_angle=None):
@@ -132,8 +132,8 @@ class DataProcessor(threading.Thread):
 
     def parse_and_process(self, line):
         """
-        Parses the raw serial data (CoP), fetches the angle from the SensorThread, 
-        performs smoothing, calculates velocity, runs the rep detection algorithm, 
+        Parses the raw serial data (CoP), fetches the angle from the SensorThread,
+        performs smoothing, calculates velocity, runs the rep detection algorithm,
         sends data to the plot queue, and writes to CSV.
         """
         cop_match = self.cop_pattern.match(line)
@@ -260,7 +260,7 @@ class DataProcessor(threading.Thread):
 
 class RestTimerWindow(tk.Toplevel):
     """
-    A full-screen Toplevel window that displays a countdown timer 
+    A full-screen Toplevel window that displays a countdown timer
     between exercise sets.
     """
     def __init__(self, parent, total_seconds):
@@ -311,7 +311,7 @@ class RoutineWindow(tk.Toplevel):
     """
     The main live session window for the exercise routine.
 
-    It manages the UI, starts and stops sets, displays real-time plots (CoP and 
+    It manages the UI, starts and stops sets, displays real-time plots (CoP and
     Angle) using Matplotlib's FuncAnimation, and handles inter-set breaks.
     """
     def __init__(self, parent, username, sensor, shared_queue, sensor_thread, serial_thread, initial_angle=None, max_angle=None):
@@ -585,23 +585,9 @@ class RoutineWindow(tk.Toplevel):
 
     def on_closing(self):
         """
-        Handles the window close event, prompting the user to save the session 
+        Handles the window close event, prompting the user to save the session
         if data has been recorded, then safely closes the data processing thread.
         """
-        if self.is_streaming:
-            answer = messagebox.askyesnocancel("Exit Session", "You are in the middle of a set.\nSave session?", parent=self)
-        else:
-            answer = messagebox.askyesnocancel("Exit Session", "Save session data?", parent=self)
-
-        if answer is True:
-            # Save and close
-            self.disconnect()
-            self.destroy()
-        elif answer is False:
-            # Discard and close
-            if self.data_processor_thread: self.data_processor_thread.discard_data()
-            self.disconnect()
-            self.destroy()
-        else:
-            # Cancel
-            pass
+        # Automatically set to save (answer = True logic)
+        self.disconnect()
+        self.destroy()
