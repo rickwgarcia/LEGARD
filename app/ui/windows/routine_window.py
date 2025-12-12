@@ -14,8 +14,14 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.animation import FuncAnimation
 import logging
-
 from core.config_manager import config
+
+# ---------------------
+# File: routine_window.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
 
 """
 Module containing the DataProcessor thread for high-frequency data analysis and

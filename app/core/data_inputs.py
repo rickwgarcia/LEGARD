@@ -4,6 +4,14 @@ import time
 import logging
 import queue
 
+
+# ---------------------
+# File: data_inputs.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 """
 Module providing threaded classes for concurrent hardware interaction.
 

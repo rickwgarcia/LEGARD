@@ -3,8 +3,6 @@ from tkinter import ttk
 import logging
 import queue
 import serial.tools.list_ports
-
-# Import existing windows and config
 from ui.windows.routine_window import RoutineWindow
 from ui.windows.calibration_window import CalibrationWindow
 from core.config_manager import config
@@ -22,6 +20,13 @@ except ImportError:
     print("Warning: Could not import 'board' or 'adafruit_bno055'. BNO055 sensor will not be available.")
     board = None
     adafruit_bno055 = None
+
+# ---------------------
+# File: dashboard.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
 
 """
 The main application dashboard, serving as the central hub for the GUI 

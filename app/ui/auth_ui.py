@@ -2,6 +2,13 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from core import auth_manager
 
+# ---------------------
+# File: auth_ui.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 """
 Module containing the user interface elements for the application's authentication flow.
 

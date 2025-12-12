@@ -5,9 +5,14 @@ import os
 import sys
 import platform
 import subprocess
-
-# Import the shared config object
 from core.config_manager import config
+
+# ---------------------
+# File: settings_tab.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
 
 """
 Module containing the SettingsTab, a comprehensive Tkinter frame for managing 

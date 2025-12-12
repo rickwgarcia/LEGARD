@@ -3,6 +3,13 @@ import hashlib
 import os
 from core.config_manager import config
 
+# ---------------------
+# File: auth_manager.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 """
 Module for handling user authentication, including registration and login,
 by storing user data in a local CSV file.

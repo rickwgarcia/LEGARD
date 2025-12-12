@@ -11,6 +11,13 @@ from collections import defaultdict
 import numpy as np
 from core.config_manager import config
 
+# ---------------------
+# File: analytics_tab.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 """
 Module containing the AnalyticsTab, a Tkinter frame responsible for 
 parsing user session data from CSV files and visualizing it using Matplotlib.
@@ -39,13 +46,13 @@ class AnalyticsTab(ttk.Frame):
         
         # Data containers
         self.session_data = [] # List of dicts containing parsed stats per session
-        self.daily_reps = defaultdict(int) # Aggregates total reps by date string
+        # self.daily_reps = defaultdict(int) # REMOVED: No longer needed for 'reps per day'
         self.weekly_sessions = defaultdict(int) # Aggregates session count by week key (YYYY-WNN)
         self.monthly_sessions = defaultdict(int) # Aggregates session count by month key (YYYY-MM)
 
         self.graph_options = [
             "Select a Graph...",
-            "Repetitions per Day",
+            "Repetitions per Session", # MODIFIED
             "Sessions per Week",
             "Avg Velocity per Session",
             "Avg Max Angle per Session",
@@ -107,12 +114,12 @@ class AnalyticsTab(ttk.Frame):
         performance statistics, and aggregates them into instance variables.
 
         Calculates:
-        - Total reps per day.
         - Session count per week and month.
         - Per-session averages for velocity and max angle achieved per rep.
+        - Total reps per session (which is used for the Reps per Session plot).
         """
         # Reset containers
-        self.daily_reps.clear()
+        # self.daily_reps.clear() # REMOVED
         self.weekly_sessions.clear()
         self.monthly_sessions.clear()
         self.session_data = []
@@ -191,7 +198,7 @@ class AnalyticsTab(ttk.Frame):
                     
                     # Session Aggregation
                     total_reps = sum(set_max_reps.values())
-                    self.daily_reps[display_date] += total_reps
+                    # self.daily_reps[display_date] += total_reps # REMOVED
                     
                     self.weekly_sessions[week_key] += 1
                     self.monthly_sessions[month_key] += 1
@@ -211,7 +218,7 @@ class AnalyticsTab(ttk.Frame):
                         'target_angle': target_angle,
                         'avg_pos_velocity': avg_velocity,
                         'avg_max_angle': avg_max_angle,
-                        'total_reps': total_reps
+                        'total_reps': total_reps # This is the reps per session
                     })
 
             except Exception as e:
@@ -223,8 +230,8 @@ class AnalyticsTab(ttk.Frame):
         self.ax1.axis('on')
         selection = self.graph_selector.get()
 
-        if selection == "Repetitions per Day":
-            self.draw_daily_reps()
+        if selection == "Repetitions per Session": # MODIFIED
+            self.draw_reps_per_session() # MODIFIED
         elif selection == "Sessions per Week":
             self.draw_sessions_per_week()
         elif selection == "Avg Velocity per Session":
@@ -240,42 +247,32 @@ class AnalyticsTab(ttk.Frame):
         self.fig.tight_layout()
         self.canvas.draw()
 
-    def draw_daily_reps(self):
-        """Draws a bar chart showing the total number of repetitions completed each day."""
-        if not self.daily_reps:
+    def draw_reps_per_session(self):
+        """Draws a line plot showing the total number of repetitions completed in each session."""
+        if not self.session_data:
             self.ax1.text(0.5, 0.5, "No Data", ha='center'); return
 
-        dates = sorted(self.daily_reps.keys())
-        reps = [self.daily_reps[d] for d in dates]
-        
-        bars = self.ax1.bar(dates, reps, color='skyblue', edgecolor='black')
-        self.ax1.set_title("Repetitions per Day")
-        self.ax1.set_ylabel("Total Reps")
-        self.ax1.tick_params(axis='x', rotation=45)
-        
-        for bar in bars:
-            height = bar.get_height()
-            self.ax1.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
+        # This now uses the same plotting logic as other session-based plots
+        self.draw_line_plot_over_time("total_reps", "Total Repetitions", "Repetitions per Session")
 
     def draw_sessions_per_week(self):
-        """Draws a bar chart showing the number of sessions completed per week."""
+        """Draws a line plot showing the number of sessions completed per week to match the style."""
         if not self.weekly_sessions:
             self.ax1.text(0.5, 0.5, "No Data", ha='center'); return
         
         weeks = sorted(self.weekly_sessions.keys())
         counts = [self.weekly_sessions[w] for w in weeks]
         
-        bars = self.ax1.bar(weeks, counts, color='lightgreen', edgecolor='black')
-        self.ax1.set_title("Sessions per Week")
-        self.ax1.set_ylabel("Count")
-        self.ax1.set_xlabel("Week (Year-Week)")
+        # Changed from bar chart to line plot
+        self.ax1.plot(weeks, counts, marker='o', linestyle='-', color='royalblue', linewidth=2)
+        
+        self.ax1.set_title("Sessions per Week", fontsize=14)
+        self.ax1.set_ylabel("Count", fontsize=12)
+        self.ax1.set_xlabel("Week (Year-Week)", fontsize=12)
+        self.ax1.grid(True, linestyle='--', alpha=0.7) # Added grid for consistency
         self.ax1.tick_params(axis='x', rotation=45)
 
         self.ax1.yaxis.get_major_locator().set_params(integer=True)
-
-        for bar in bars:
-            height = bar.get_height()
-            self.ax1.text(bar.get_x() + bar.get_width()/2., height, f'{int(height)}', ha='center', va='bottom')
 
     def draw_line_plot_over_time(self, key, y_label, title):
         """

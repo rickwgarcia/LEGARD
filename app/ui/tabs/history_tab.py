@@ -5,9 +5,15 @@ import csv
 import logging
 from datetime import datetime
 from core.config_manager import config
-
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+# ---------------------
+# File: history_tab.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
 
 """
 Module containing the HistoryTab, a Tkinter frame dedicated to viewing 
@@ -248,11 +254,20 @@ class HistoryTab(ttk.Frame):
             return
 
         sorted_sets = sorted(list(sets), key=lambda x: int(x) if x.isdigit() else 0)
-        self.set_combo['values'] = ["All Sets"] + sorted_sets
-        self.set_combo.set("All Sets")
-        self.set_combo.config(state="readonly")
-
-        self.plot_data("All Sets")
+        
+        # --- MODIFIED CODE START ---
+        self.set_combo['values'] = sorted_sets # Removed: ["All Sets"] + 
+        
+        if sorted_sets:
+            self.set_combo.set(sorted_sets[0]) # Set the default to the first set
+            self.set_combo.config(state="readonly")
+            self.plot_data(sorted_sets[0])
+        else:
+            self.set_combo.set('') # No sets found
+            self.set_combo.config(state="disabled")
+            self.reset_plots("Session loaded, but no sets found.")
+            
+        # --- MODIFIED CODE END ---
 
     def on_set_selected(self, event=None):
         """Event handler for the set combobox selection; triggers plotting of the selected set."""
@@ -297,8 +312,10 @@ class HistoryTab(ttk.Frame):
         self.y_coords = []
 
         # Filter data based on selected set
+        # Since 'selected_set' will now always be a specific set number (e.g., '1', '2'), 
+        # the 'All Sets' check is effectively removed for filtering.
         for row in self.current_session_data:
-            if selected_set == "All Sets" or row[set_idx] == selected_set:
+            if row[set_idx] == selected_set: # Simplified filtering
                 try:
                     self.times.append(float(row[time_idx]))
                     self.angles.append(float(row[angle_idx]))

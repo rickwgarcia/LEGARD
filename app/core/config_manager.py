@@ -1,6 +1,13 @@
 import configparser
 import os
 
+# ---------------------
+# File: config_manager.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 """
 Module for loading and managing application configuration settings from
 the 'config.ini' file.

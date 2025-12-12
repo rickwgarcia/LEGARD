@@ -4,6 +4,13 @@ import math
 import logging
 import time
 
+# ---------------------
+# File: calibration_window.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 """
 Module containing the CalibrationWindow, a Toplevel window that guides the user 
 through a two-step process to zero the angle sensor and determine their maximum 

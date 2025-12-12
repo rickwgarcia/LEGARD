@@ -1,6 +1,13 @@
 from core import auth_manager
 from ui.auth_ui import LoginApp
 
+# ---------------------
+# File: main.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 if __name__ == "__main__":
     """
     Main entry point for the application.

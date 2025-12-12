@@ -1,6 +1,13 @@
 import tkinter as tk
 from tkinter import ttk
 
+# ---------------------
+# File: profile_tab.py
+# Author: Ricardo Garcia, ricardo.garcia@cosmiac.org
+# Last Modified: 2025-12-12
+# Version: 2.0.0
+# ---------------------
+
 """
 Module containing the ProfileTab, a simple Tkinter frame used to display 
 the currently logged-in user's profile information within the dashboard.
