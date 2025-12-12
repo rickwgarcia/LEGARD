@@ -160,29 +160,24 @@ class Dashboard(tk.Tk):
         parent_frame.rowconfigure(2, weight=0) # Text Box row (content)
         parent_frame.rowconfigure(3, weight=1) # Bottom spacer
 
-        # --- Content Widgets ---
 
-        # 1. Start New Routine Button
         start_button = ttk.Button(parent_frame, text="Start New Routine", command=self.start_routine)
         
-        # Place the button in the central column (1) and central rows (1)
-        # We use a single large pady/ipady for centering/sizing
+
         start_button.grid(row=1, column=1, ipady=20, ipadx=40, pady=(0, 10), sticky="s") # sticky="s" pushes it slightly toward the text below
         
-        # 2. Preparatory Text Box (ttk.Label)
         pre_routine_text = "Keep scale clear and leg lever at the starting position"
         
         text_box_label = ttk.Label(
             parent_frame, 
             text=pre_routine_text, 
             wraplength=400, 
-            anchor="center", # Ensures text is centered within the label space
-            justify="center", # Ensures multi-line text is centered (Official documentation suggests 'justify' is better for multi-line text alignment)
-            font=('TkDefaultFont', 12, 'bold')
+            anchor="center", 
+            justify="center",
+            font=('TkDefaultFont', 12,)
         )
         
-        # Place the label below the button in row 2, central column 1
-        text_box_label.grid(row=2, column=1, pady=(10, 0), sticky="n") # sticky="n" pushes it slightly toward the button above
+        text_box_label.grid(row=2, column=1, pady=(10, 0), sticky="n") 
 
     def start_routine(self):
         """
