@@ -142,5 +142,3 @@ The core behavior of the application is controlled by the following default sett
 |  | `max_angle_tolerance_percent` | 50.0 | Percentage of the calibrated max angle required to count a successful rep. |
 | **[Plotting]** | `time_window_seconds` | 5 | Time window (in seconds) for the live angle plot. |
 |  | `cop_x_limit`, `cop_y_limit` | 1.0 | X and Y axis limits for the Center of Pressure plot (cm). |
-
-
