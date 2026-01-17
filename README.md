@@ -143,4 +143,4 @@ The core behavior of the application is controlled by the following default sett
 | **[Plotting]** | `time_window_seconds` | 5 | Time window (in seconds) for the live angle plot. |
 |  | `cop_x_limit`, `cop_y_limit` | 1.0 | X and Y axis limits for the Center of Pressure plot (cm). |
 
-Would you like me to generate a technical diagram illustrating how the Python threads and the Arduino hardware communicate with each other?
+
