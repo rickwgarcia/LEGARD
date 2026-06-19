@@ -219,7 +219,7 @@ The exercise detection logic is a 4-state state machine:
 
 The `target_angle_threshold` is dynamically calculated from the user's calibration `max_angle`:
 
-$$\text{Target Angle} = \text{max\_angle} \cdot \left( \frac{\text{MAX\_ANGLE\_TOLERANCE\_PERCENT}}{100} \right)$$
+$$\text{Target Angle} = \mathit{max\_angle} \cdot \left( \frac{\mathit{MAX\_ANGLE\_TOLERANCE\_PERCENT}}{100} \right)$$
 
 ### Data Logging
 
