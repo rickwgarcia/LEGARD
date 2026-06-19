@@ -26,9 +26,9 @@ Before starting any session, you must create a user profile if you haven't alrea
 3. Provide your **First Name**, **Last Name**, and **Gender**.
 4. Click **Register**. A successful registration will create a user entry and hash your PIN for security.
 
-<img width="600" height="371" alt="user_reg_click" src="https://github.com/user-attachments/assets/4bc78fae-e8ee-4008-a178-b02d14d8fb85" />
+<div align="center"><img width="600" height="371" alt="user_reg_click" src="https://github.com/user-attachments/assets/4bc78fae-e8ee-4008-a178-b02d14d8fb85" /></div>
 
-<img width="600" height="586" alt="user_new_account" src="https://github.com/user-attachments/assets/489de693-d6ff-41b8-a4fd-58907387a3dc" />
+<div align="center"><img width="600" height="586" alt="user_new_account" src="https://github.com/user-attachments/assets/489de693-d6ff-41b8-a4fd-58907387a3dc" /></div>
 
 
 ### User Login
@@ -39,9 +39,9 @@ To access the main Dashboard, log in with your credentials.
 2. Click **Login**.
 3. Upon successful validation, you will be directed to the main Dashboard, displaying your Profile, Analytics, History, and Settings tabs.
 
-<img width="600" height="325" alt="user_login_succ" src="https://github.com/user-attachments/assets/f29ca57b-3b55-477b-8b37-dfef19c22d9a" />
+<div align="center"><img width="600" height="325" alt="user_login_succ" src="https://github.com/user-attachments/assets/f29ca57b-3b55-477b-8b37-dfef19c22d9a" /></div>
 
-<img width="600" height="360" alt="login_dash" src="https://github.com/user-attachments/assets/2a070b17-20de-4dcb-9976-6cebd3229b28" />
+<div align="center"><img width="600" height="360" alt="login_dash" src="https://github.com/user-attachments/assets/2a070b17-20de-4dcb-9976-6cebd3229b28" /></div>
 
 
 ## The Routine
@@ -56,7 +56,7 @@ The calibration process uses the `CalibrationWindow` to zero the sensor and find
 2. Keeping the scale clear and leg lever at the starting position, start the calibration process by clicking **Start New Routine**
 3. The application will now zero the leg lever and COP system.
 
-<img width="600" height="353" alt="starting_new_rountine" src="https://github.com/user-attachments/assets/62d1ac98-0d5f-4104-bc75-edcf4ed5f896" />
+<div align="center"><img width="600" height="353" alt="starting_new_rountine" src="https://github.com/user-attachments/assets/62d1ac98-0d5f-4104-bc75-edcf4ed5f896" /></div>
 
 
 ### Establish a Baseline
@@ -71,7 +71,7 @@ The calibration process uses the `CalibrationWindow` to zero the sensor and find
 1. Once you have reached your highest comfortable range of motion, click **Complete Calibration**.
 2. The system saves the `initial_angle` and `max_angle`. The `max_angle` is used to calculate the **Target Angle Threshold** for your exercise routines, typically set as a percentage (e.g., 90%) of this maximum.
 
-<img width="600" height="453" alt="cali_screen" src="https://github.com/user-attachments/assets/244cecb8-329a-4de4-bd63-e6b14e52c483" />
+<div align="center"><img width="600" height="453" alt="cali_screen" src="https://github.com/user-attachments/assets/244cecb8-329a-4de4-bd63-e6b14e52c483" /></div>
 
 
 ### Routine Instructions
@@ -99,7 +99,7 @@ The History tab is designed for detailed inspection of the Center of Pressure (C
 4. **Interactive Scrubbing**: Click and drag your mouse across the **Relative Angle** plot. A red cursor will appear on both graphs simultaneously, allowing you to see exactly where your balance (CoP) was at any specific moment in the range of motion.
 5. **Refresh**: Click **Refresh Data** to update the list if you have just finished a new session.
 
-<img width="600" height="360" alt="history_tab" src="https://github.com/user-attachments/assets/72833479-806b-4d31-b025-036292ccbdf5" />
+<div align="center"><img width="600" height="360" alt="history_tab" src="https://github.com/user-attachments/assets/72833479-806b-4d31-b025-036292ccbdf5" /></div>
 
 
 ### Navigating the Analytics Tab
@@ -115,12 +115,12 @@ The Analytics tab provides a trend of your training consistency and performance 
 2. **Trend Analysis**: Use these graphs to identify improvements in range of motion or speed, which are key indicators of recovery or strength gains.
 3. **Data Update**: If sessions are missing, click **Refresh Data** to re-scan your local user directory for the latest CSV logs.
 
-<img width="600" height="360" alt="analysis_tab" src="https://github.com/user-attachments/assets/5fec87d0-195e-4d27-95bd-9ff418ba51dc" />
+<div align="center"><img width="600" height="360" alt="analysis_tab" src="https://github.com/user-attachments/assets/5fec87d0-195e-4d27-95bd-9ff418ba51dc" /></div>
 
 
 # Hardware Setup
 
-<img width="600" height="460" alt="legard_full_wiring_bb" src="https://github.com/user-attachments/assets/a13f27be-6d09-49a1-b968-028ac020f971" />
+<div align="center"><img width="600" height="460" alt="legard_full_wiring_bb" src="https://github.com/user-attachments/assets/a13f27be-6d09-49a1-b968-028ac020f971" /></div>
 
 
 The following specifications define the minimum plate thickness and dimensions utilized during testing. These parameters were selected to optimize structural rigidity and ensure maximum force transfer to the load cells.
@@ -142,7 +142,7 @@ The required electronic hardware
 Note that by default the Sparkfun HX711 chip SJ2 is closed, data rate set to 10SPS, open the jumper to set to 80SPS, increasing the noise per readings. This is not optional is neccsarry for proper function.
 
 
-<img width="600" height="452" alt="hx711_schem" src="https://github.com/user-attachments/assets/131c616e-c3a8-4394-897f-3cc67e0d3586" />
+<div align="center"><img width="600" height="452" alt="hx711_schem" src="https://github.com/user-attachments/assets/131c616e-c3a8-4394-897f-3cc67e0d3586" /></div>
 
 
 # Codebase
@@ -212,7 +212,7 @@ The exercise detection logic is a 4-state state machine:
 * **State 2 (Negative Movement)**: Records the peak angle achieved during the downward motion. Transitions to State 3 upon reversal (velocity rises above `VELOCITY_POS_THRESHOLD`).
 * **State 3 (Reversal/Transition)**: A repetition is counted if the smoothed velocity returns to a near-zero state (not moving) and the recorded peak angle (`max_angle_for_current_rep`) is greater than the `target_angle_threshold`.
 
-<img width="600" height="607" alt="set_states" src="https://github.com/user-attachments/assets/cb83b486-ec49-4362-93da-a382da9f68f0" />
+<div align="center"><img width="600" height="607" alt="set_states" src="https://github.com/user-attachments/assets/cb83b486-ec49-4362-93da-a382da9f68f0" /></div>
 
 
 ### Target Threshold
